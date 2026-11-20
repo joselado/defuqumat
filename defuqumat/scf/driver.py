@@ -3349,9 +3349,10 @@ class Calculation:
             if unmeasured:
                 raise NotImplementedError(
                     f"the local mBJ (input_dft = 'lmbj') with {unmeasured[0]} is not "
-                    "implemented: it is measured at nspin = 1 and 2 only, and the "
-                    "spinor, spiral and nosource branches have no number with c a "
-                    "field. input_dft = 'tb09' runs there"
+                    "implemented: it is measured at nspin = 1 and on the "
+                    "unpolarized nspin = 2 identity only, and the spinor, spiral "
+                    "and nosource branches have no number with c a field. "
+                    "input_dft = 'tb09' runs there"
                 )
         if self.functional.is_local_meta and any(p.is_paw for p in self.pseudos):
             # The one-centre terms take one Tran-Blaha c (``Potential.meta_c``),

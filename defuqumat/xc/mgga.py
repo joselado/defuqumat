@@ -139,8 +139,9 @@ META_RHO_THRESHOLD = 1.0e-6
 
 #: The local mBJ's gate on the potential, 1e-9 where TB09 and BJ06 keep 1e-6
 #: (P182, the user's choice of 2026-11-18). It sits beneath
-#: :func:`hold_vacuum_potential`, which replaces the potential below 1e-5 by the
-#: clean tail's value, so in a cell with vacuum it no longer decides anything.
+#: :func:`hold_vacuum_potential`, which blends the potential into the clean
+#: tail's value below about 1e-4, centred on 1e-5, so in a cell with vacuum it
+#: no longer decides anything.
 #: The history, for whoever is tempted to move it: cut at 1e-6, the vacuum had a
 #: well (the Becke-Johnson term tends to a positive constant in a tail, and the
 #: cut dropped it to zero), and graphane's vacuum state at ``Gamma`` moved 1.53 eV
@@ -326,8 +327,10 @@ def tb09_potential(rho, sigma, laplacian, tau, c, gamma=BR89_GAMMA,
 
     ``c = 1`` collapses the prefactors to ``1`` and ``1``, which is Becke-Johnson
     06; ``c = 2/3`` would switch the second term off entirely and leave a scaled
-    Becke-Roussel. Nothing here is per-point except ``c``, and ``c`` is not per
-    point at all -- see :func:`tb09_coefficient`.
+    Becke-Roussel. ``c`` is one number for TB09 and BJ06, the cell average of
+    :func:`tb09_coefficient`, and a field on the same grid as ``rho`` under the
+    local mBJ (``input_dft = 'lmbj'``, :func:`lmbj_coefficient_from_average`);
+    the expression is the same pointwise in both.
 
     **Zero below the density threshold**, and the points below it are evaluated
     on substitute values first, so that ``grad`` sees no singular arithmetic

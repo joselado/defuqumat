@@ -925,20 +925,23 @@ def meta_exchange(
     # when unpolarized and their sum when not. Three FFTs per potential build.
     total_grad = 2.0 * grad[0] if nspin == 1 else grad[0] + grad[1]
 
-    # ``c`` is an average over the cell of the **total** density's ratio, so it
-    # is one number for the whole calculation and not one per channel -- and it
-    # is the total, not the majority channel: Tran and Blaha's Eq. (3) has no
-    # spin index on it, and giving each channel its own ``c`` would make the two
-    # potentials belong to different functionals.
+    # ``c`` is built from the **total** density's ratio, not one per channel and
+    # not the majority channel's: Tran and Blaha's Eq. (3) has no spin index on
+    # it, and giving each channel its own ``c`` would make the two potentials
+    # belong to different functionals. For TB09 and BJ06 it is the cell
+    # average, one number for the whole calculation; under the local mBJ it is
+    # a field on the grid, the Gaussian average of that ratio, and the same
+    # field enters both channels.
     c = functional.meta_c(total_r, total_grad, gvectors, cell)
 
     v = jax.vmap(functional.meta_exchange_potential, in_axes=(0, 0, 0, 0, None))(
         channels_r, sigma, lap, channels_tau / E2, c
     )
     if functional.is_local_meta:
-        # Below n = 1e-5 the local mBJ holds its potential at the clean vacuum
-        # tail's value: the plane-wave density's noise floor would otherwise
-        # set the vacuum potential (P182, the vacuum check). Each channel on its
+        # Below about 1e-4, centred on 1e-5, the local mBJ blends its potential
+        # into the clean vacuum tail's value: the plane-wave density's noise
+        # floor would otherwise set the vacuum potential (P182, the vacuum
+        # check). Each channel on its
         # own density doubled, the density its exchange is evaluated at (audit
         # 2026-11-20 #47); at nspin = 1 that is the total, bit for bit.
         from defuqumat.xc.mgga import hold_vacuum_potential
