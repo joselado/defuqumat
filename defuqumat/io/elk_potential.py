@@ -314,10 +314,16 @@ def _setup(state, params: ElkParameters) -> _Setup:
     if ngvec < 1 or gc[ngvec] <= params.gmaxvr:
         raise AssertionError("G-vectors are not sorted by length")
     lnpsd = params.lmaxo + params.npsd + 1
-    expected_npsd = max(int(np.rint(0.25 * params.gmaxvr * rmt.max())), 1)
-    if expected_npsd != params.npsd:
+    # init0: npsd = max(nint(0.25 gmaxvr maxval(rmt)), 1). Fortran's nint rounds
+    # a half away from zero, and rmt here is rsp(nrmt), an ulp from Elk's rmt,
+    # with gmaxvr printed to ten digits: so the printed npsd is checked against a
+    # window of one half around the product, not recomputed.
+    t = 0.25 * params.gmaxvr * rmt.max()
+    slack = 1e-6 * max(t, 1.0)
+    if not (abs(t - params.npsd) <= 0.5 + slack
+            or (params.npsd == 1 and t <= 1.5 + slack)):
         raise ValueError(f"INFO.OUT's pseudocharge constant {params.npsd} is not "
-                         f"init0's {expected_npsd} for this state's muffin tins")
+                         f"init0's max(nint({t:.6f}), 1) for this state's muffin tins")
     positions = np.asarray(geometry.positions, dtype=float) @ avec
     gmask = np.zeros(tuple(ng), dtype=bool)
     within = gc <= 2.0 * params.gkmax + EPSLAT

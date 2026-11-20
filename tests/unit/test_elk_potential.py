@@ -158,3 +158,27 @@ def test_a_finite_nucleus_and_a_noncollinear_gga_are_refused():
                                  magir=np.repeat(state.magir, 3, axis=-1))
     with pytest.raises(NotImplementedError, match="dncgga"):
         exchange_correlation_potential(vector, dataclasses.replace(params, xctype=(20, 0, 0)))
+
+
+@pytest.mark.parametrize("product", [2.5, 2.5 - 1e-12])
+def test_the_pseudocharge_constant_rounds_half_away_from_zero(product):
+    """init0's ``nint(0.25 gmaxvr rmt)`` is 3 at 2.5, where ``np.rint`` gives 2.
+
+    ``rsp(nrmt)``, the radius this module has, can sit an ulp from Elk's ``rmt``
+    on either side (1.6750000499999973 against 1.67500005 in the O2 template),
+    so a product Elk rounds to 3 can also arrive here just below 2.5.
+    """
+    import dataclasses
+
+    state, params = _read("o2_template_collinear")
+    rmt = state.rsp[0][state.nrmt[0] - 1]
+    params = dataclasses.replace(params, gmaxvr=4.0 * product / rmt, npsd=3)
+    coulomb_potential(state, params)
+
+
+def test_a_pseudocharge_constant_that_is_not_init0_is_refused():
+    import dataclasses
+
+    state, params = _read("sic_zb")
+    with pytest.raises(ValueError, match="pseudocharge"):
+        coulomb_potential(state, dataclasses.replace(params, npsd=params.npsd + 1))
