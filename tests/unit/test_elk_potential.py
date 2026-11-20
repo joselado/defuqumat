@@ -325,3 +325,33 @@ def test_a_constant_electric_field_is_refused(tmp_path):
     assert params.tefield
     with pytest.raises(NotImplementedError, match="tefield"):
         coulomb_potential(state, params)
+
+
+@pytest.mark.parametrize("text, switches", [
+    ("stable\n  .true.\n\nmsmgmt\n  0\n", dict(symtype=1, msmgmt=0, nosource=False)),
+    ("msmgmt\n  0\n\nstable\n  .true.\n", dict(symtype=1, msmgmt=1, nosource=False)),
+    ("metagga\n  T\n", dict(symtype=1, msmgmt=4, nosource=False)),
+    ("nosym\n  .false.\n\nnosource\n  .true.\n", dict(symtype=1, msmgmt=0, nosource=True)),
+    ("!nosym\n  .true.\n\nsymtype\n  2\n", dict(symtype=2, msmgmt=0, nosource=False)),
+    ("symtype\n  2\n\nnosym\n  .true.\n", dict(symtype=0, msmgmt=0, nosource=False)),
+])
+def test_the_elk_in_switches_are_read_in_file_order(text, switches, tmp_path):
+    """``readinput`` reads the blocks in order: ``stable`` raises ``msmgmt``, a later one sets it."""
+    from defuqumat.io.elk_potential import _elk_input_switches
+
+    (tmp_path / "elk.in").write_text(text)
+    assert _elk_input_switches(tmp_path / "elk.in") == switches
+
+
+def test_a_template_without_elk_in_is_warned_about_where_it_matters(tmp_path):
+    import warnings
+
+    gga = _template_copy(tmp_path, "sic_zb")
+    (gga / "elk.in").unlink()
+    with pytest.warns(UserWarning, match="no elk.in"):
+        exchange_correlation_potential(ElkState.read(gga), read_elk_parameters(gga))
+    lda = _template_copy(tmp_path, "h_sc")
+    (lda / "elk.in").unlink()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        exchange_correlation_potential(ElkState.read(lda), read_elk_parameters(lda))

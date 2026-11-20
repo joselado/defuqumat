@@ -987,7 +987,8 @@ class Calculator:
 
         ``template`` is an Elk run directory of the same crystal (its
         ``STATE.OUT``, ``GEOMETRY.OUT`` and ``INFO.OUT``, any state of that run,
-        for its meshes and parameters); ``directory/STATE.OUT`` is written, and
+        for its meshes and parameters, and its ``elk.in`` for ``symtype``,
+        ``msmgmt`` and ``nosource``); ``directory/STATE.OUT`` is written, and
         Elk then runs ``task = 1`` there:
 
         .. code-block:: python

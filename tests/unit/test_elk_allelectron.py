@@ -244,11 +244,12 @@ def test_nosym_writes_the_potential_without_the_group_average(tmp_path):
     template = _template_with(tmp_path, "\nnosym\n  .true.\n", 1)
     state = _write_on(tmp_path, template)
     params = read_elk_parameters(template)
-    assert (params.symtype, params.nsymcrys) == (0, 1)
     bare = kohn_sham_potential(state, params, None)
     nr = state.nrmt[0]
     # The identity alone is still a quadrature of Y_lm Y_lm': 1.6e-13 on a 45 Ha scale.
+    # Averaged over the 48 operations it was 7.17e-3 Ha away (13501076).
     np.testing.assert_allclose(bare["vxcmt"][:, :nr], state.vxcmt[:, :nr] / 2.0, atol=1e-12)
+    assert (params.symtype, params.nsymcrys) == (0, 1)
     averaged = kohn_sham_potential(state, params, crystal_symmetrizer(state, params.lmaxo)[0])
     assert np.abs(averaged["vxcmt"][:, :nr] - bare["vxcmt"][:, :nr]).max() > 1e-6
 
