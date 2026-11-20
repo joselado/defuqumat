@@ -464,7 +464,8 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
                                 kappa)
         _refuse_an_augmented_plane(system, pseudos, exit_axis,
                                    (float(match_height),), "the matching plane")
-        # the planar average the WKB continuation decays through; without a
+        # the planar average the continuation decays through (the WKB exponent,
+        # without its amplitude factor: continued_components); without a
         # plateau (tip_kappa in a field) the vacuum is taken as flat
         if notes.get("kappa_source") == "plateau":
             match["profile"] = vacuum_level(system, result.potential,
