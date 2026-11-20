@@ -239,14 +239,21 @@ class StreamedStrains:
 
     # -- after the loop --------------------------------------------------------
 
-    def eigenvalue_response(self, dvscf) -> np.ndarray:
-        """``(3, 3, nspin, nk, nocc, nocc)``: ``<psi_m|dH_bare + dV_scf|psi_n>``, walked."""
+    def eigenvalue_response(self, dvscf, onecentre=None) -> np.ndarray:
+        """``(3, 3, nspin, nk, nocc, nocc)``: ``<psi_m|dH_bare + dV_scf|psi_n>``, walked.
+
+        ``onecentre`` is PAW's converged one-centre response, added to ``int3``
+        as the whole route's :func:`~defuqumat.response.strain._eigenvalue_response`
+        adds it; ``None`` without a PAW species.
+        """
         solver = self.solver
         shape = tuple(solver.psi.shape[:3]) + tuple(solver.psi.shape[2:3])
         out = np.empty((3, 3) + shape, dtype=complex)
         for index, (a, b) in enumerate(PAIRS):
-            coefficients = (solver.perturbed_coefficients(dvscf[a, b])
-                            if self.ultrasoft else None)
+            coefficients = None
+            if self.ultrasoft:
+                coefficients = solver.perturbed_coefficients(
+                    dvscf[a, b], None if onecentre is None else onecentre[a, b])
             values = np.empty(shape, dtype=complex)
             for rows, live in self.chunks:
                 chunk = self.passes["eigenvalues"](
