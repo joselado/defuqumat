@@ -930,7 +930,9 @@ so its size moves by a few per cent with the mesh and its sign does not.
     orbitals with one weight, which is a Pb apex whose $p_{1/2}$ and $p_{3/2}$
     states carry the same weight per state. With different weights the tip
     states of a Pb apex are not one orbital times one spin, and the code has no
-    such tip. The weights are those
+    such tip. For the same reason `from_upf` gives an error for a fully
+    relativistic file, where two orbitals share one label, such as the
+    $j = 1/2$ and $j = 3/2$ 6P orbitals of Bi. The weights are those
     of Chen's table, which are not normalized in the same way for the five d
     orbitals, so equal weights on the five are not a round tip, while on the
     three p orbitals they are. The STS spectrum, the QPI map, the STM image and

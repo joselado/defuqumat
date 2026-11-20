@@ -796,6 +796,29 @@ def test_the_presets_are_single_families_with_the_weight_of_their_orbital():
     assert o2p[0] == pytest.approx(o2p[1], rel=5e-3)
 
 
+def test_a_label_two_orbitals_share_is_refused_and_a_single_one_is_kept():
+    """A fully relativistic file has one orbital per ``j`` under one label.
+
+    ``Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF`` has two ``6P`` (-0.4085 and -0.2726
+    Ry) and two ``5D``: a tip built from the first would carry the weight of
+    one ``j`` alone (audit 2026-11-20 #43). Its ``6S`` is one orbital and is
+    kept, and so are the presets, which are scalar-relativistic.
+    """
+    from defuqumat.transport.tip_presets import (
+        PRESETS, PSEUDO_DIR, bardeen_weight, from_upf, orbital_eigenvalue, preset)
+
+    bismuth = PSEUDO_DIR / "Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF"
+    with pytest.raises(NotImplementedError, match="spinor tip channel"):
+        from_upf(bismuth, {"pz": ("6P", 1.0)})
+    with pytest.raises(NotImplementedError, match="2 orbitals labelled '5D'"):
+        bardeen_weight(bismuth, "5D", 0.6)
+    with pytest.raises(NotImplementedError, match="fully relativistic"):
+        orbital_eigenvalue(bismuth, "6P")
+    assert from_upf(bismuth, {"s": ("6S", 1.0)}).names == ("s",)
+    for name in PRESETS:
+        assert preset(name).channels
+
+
 def test_the_wkb_continuation_is_the_flat_one_in_a_flat_vacuum_and_integrates_a_slope():
     """``exp(-int kappa dt)`` with ``kappa(t)^2 = V(t) - e + |q|^2``.
 
