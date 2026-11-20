@@ -545,3 +545,107 @@ def test_the_kramers_average_is_on_for_a_wedge_written_as_an_explicit_list(pseud
     listed = Calculator.from_text(grid, pseudo_dir=pseudo_dir).calculation
     assert listed.system.kpoints.nk == 27
     assert not listed.hubbard_symmetry.kramers
+
+
+# -- ns_adj on a spinor (audit 2026-11-20c #7) ---------------------------------
+
+def _spinor_ns_adj_setup(starting_ns):
+    """A d shell and a p shell on two species, so the p slot is padded to ldmx = 5."""
+    d = HubbardSpecies(n=3, l=2, u=U, occupation=8.0)
+    p = HubbardSpecies(n=2, l=1, u=U, occupation=3.0)
+    return HubbardSetup(
+        species=(d, p), atoms=(0, 1), ldims=(5, 3), ldmx=5, offsets=(0, 10),
+        atomwfc_offsets=(0, 10), nwfcU=16, types=(0, 1), noncolin=True,
+        starting_ns=dict(starting_ns),
+    )
+
+
+def _qe_ns_adj_noncolin(ns, slot, ldim, requested):
+    """``ns_adj.f90``'s ``IF (noncolin)`` branch, line by line, on one slot.
+
+    ``requested`` maps ``(is, i)``, zero-based, to ``starting_ns(i, is, nt)``.
+    """
+    f = np.zeros((2 * ldim, 2 * ldim), dtype=complex)
+    for m1 in range(ldim):
+        for m2 in range(ldim):
+            f[m1, m2] = ns[0, slot, m1, m2]
+            f[m1, ldim + m2] = ns[1, slot, m1, m2]
+            f[ldim + m1, m2] = ns[2, slot, m1, m2]
+            f[ldim + m1, ldim + m2] = ns[3, slot, m1, m2]
+    lam, vet = np.linalg.eigh(f)
+    j = 0
+    for spin in range(2):
+        for i in range(ldim):
+            if requested.get((spin, i), -1.0) >= 0.0:
+                lam[j] = requested[(spin, i)]
+            j += 1
+    for m1 in range(2 * ldim):
+        for m2 in range(m1, 2 * ldim):
+            temp = sum(vet[m1, i] * lam[i] * np.conj(vet[m2, i]) for i in range(2 * ldim))
+            f[m1, m2] = temp
+            f[m2, m1] = np.conj(temp)
+    out = np.array(ns, dtype=complex)
+    out[0, slot, :ldim, :ldim] = f[:ldim, :ldim]
+    out[1, slot, :ldim, :ldim] = f[:ldim, ldim:]
+    out[2, slot, :ldim, :ldim] = f[ldim:, :ldim]
+    out[3, slot, :ldim, :ldim] = f[ldim:, ldim:]
+    return out, lam
+
+
+def _canted_spinor_ns(seed=11):
+    """A Hermitian occupation matrix per slot with complex off-diagonal spin blocks."""
+    rng = np.random.default_rng(seed)
+    ns = np.zeros((4, 2, 5, 5), dtype=complex)
+    for slot, ldim in enumerate((5, 3)):
+        a = rng.normal(size=(2 * ldim, 2 * ldim)) + 1j * rng.normal(size=(2 * ldim, 2 * ldim))
+        vectors = np.linalg.qr(a)[0]
+        full = (vectors * rng.uniform(0.05, 0.95, size=2 * ldim)) @ vectors.conj().T
+        for s1 in range(2):
+            for s2 in range(2):
+                ns[2 * s1 + s2, slot, :ldim, :ldim] = full[
+                    s1 * ldim:(s1 + 1) * ldim, s2 * ldim:(s2 + 1) * ldim]
+    return ns
+
+
+def test_ns_adj_on_a_spinor_is_qe_noncollinear_branch():
+    """``starting_ns_eigenvalue`` on a spinor sets an eigenvalue of the ``2 ldim`` matrix.
+
+    ``pw.x`` builds ``f`` from the four packed blocks, diagonalises it whole and
+    sets eigenvalue ``(is - 1) ldim + i`` of the ascending spectrum. The old code
+    looped over the four packed blocks as if they were channels: a request with
+    ``is = 2`` landed on the off-diagonal ``ud`` block and the result was not
+    Hermitian. Checked three ways: against a line-by-line transcription of
+    ``ns_adj.f90``, by the Hermiticity of the rebuilt matrix, and by its
+    spectrum, which must be the old one with the named entries replaced.
+    """
+    from defuqumat.hubbard.occupations import adjust_ns
+
+    # Species 0 (the d shell): eigenvalue i = 3 of is = 2, i = 1 of is = 1.
+    # Species 1 (the p shell): eigenvalue i = 2 of is = 2. A negative value
+    # means "leave it", as in pw.x, and an m beyond ldim is ignored.
+    request = {(0, 1, 2): 0.3, (0, 0, 0): 0.97, (0, 0, 4): -1.0,
+               (1, 1, 1): 0.6, (1, 0, 4): 0.5}
+    setup = _spinor_ns_adj_setup(request)
+    ns = _canted_spinor_ns()
+    adjusted = np.asarray(adjust_ns(jnp.asarray(ns), setup))
+
+    expected = np.array(ns)
+    for slot, (ldim, kind) in enumerate(zip((5, 3), (0, 1))):
+        wanted = {(spin, m): value for (t, spin, m), value in request.items()
+                  if t == kind and m < ldim}
+        expected, lam = _qe_ns_adj_noncolin(expected, slot, ldim, wanted)
+        full = np.block([[adjusted[2 * s1 + s2, slot, :ldim, :ldim] for s2 in range(2)]
+                         for s1 in range(2)])
+        np.testing.assert_allclose(full, full.conj().T, atol=1e-14)
+        np.testing.assert_allclose(np.linalg.eigvalsh(full), np.sort(lam), atol=1e-13)
+    np.testing.assert_allclose(adjusted, expected, atol=1e-13)
+    # The positions asked for, in the ascending spectrum of the whole matrix.
+    d = np.block([[adjusted[2 * s1 + s2, 0] for s2 in range(2)] for s1 in range(2)])
+    original = np.linalg.eigvalsh(np.block([[ns[2 * s1 + s2, 0] for s2 in range(2)]
+                                            for s1 in range(2)]))
+    replaced = original.copy()
+    replaced[5 + 2], replaced[0] = 0.3, 0.97
+    np.testing.assert_allclose(np.linalg.eigvalsh(d), np.sort(replaced), atol=1e-13)
+    # The padding of the p slot is untouched.
+    assert np.abs(adjusted[:, 1, 3:, :]).max() == 0.0
+    assert np.abs(adjusted[:, 1, :, 3:]).max() == 0.0

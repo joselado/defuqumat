@@ -677,10 +677,23 @@ def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
     definite orbital. This is a starting guess and not a result, so it costs
     SCF iterations at worst and cannot be wrong, and ``pw.x``'s ``ns_adj``
     does the same (``notes/DEGENERACY-NEXT.md`` item 5).
+
+    **A spinor ``ns`` is one matrix, not four channels.** ``ns_adj``'s
+    noncollinear branch assembles the ``2 ldim`` matrix ``f`` from the four
+    packed blocks, ``f(s1 ldim + m1, s2 ldim + m2) = ns[2 s1 + s2, m1, m2]``
+    (the packed index is ``ns_nc``'s own, so there is no transpose), diagonalises
+    it whole and sets eigenvalue ``j = ispin ldim + m`` of its ascending
+    spectrum, so ``ispin`` names the lower or the upper half of the spectrum
+    and not a spin block. All four blocks are written back from the rebuilt
+    matrix. Looping over the packed axis instead diagonalised the off-diagonal
+    ``ud`` block as if it were a channel, and left ``ns`` non-Hermitian
+    (audit 2026-11-20c #7).
     """
     if not setup.starting_ns:
         return ns
     values = np.array(ns)
+    if getattr(setup, "noncolin", False):
+        return jnp.asarray(_adjust_spinor_ns(values, setup))
     for slot, t in enumerate(setup.types):
         ldim = setup.ldims[slot]
         for spin in range(values.shape[0]):
@@ -699,3 +712,36 @@ def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
                 vectors * eigenvalues
             ) @ vectors.conj().T
     return jnp.asarray(values)
+
+
+def _adjust_spinor_ns(values: np.ndarray, setup) -> np.ndarray:
+    """``ns_adj``'s noncollinear branch on a packed ``(4, nslot, ldmx, ldmx)`` ``ns``."""
+    # The off-diagonal spin blocks are complex whatever the input's dtype says.
+    values = values.astype(np.result_type(values.dtype, 1j), copy=False)
+    for slot, t in enumerate(setup.types):
+        ldim = setup.ldims[slot]
+        requested = {
+            ispin * ldim + m: value
+            for (kind, ispin, m), value in setup.starting_ns.items()
+            if kind == t and ispin < 2 and m < ldim
+        }
+        if not requested:
+            continue
+        # ``f(m1, m2) = ns_nc(m1, m2, 1)``, ``f(m1, ldim + m2) = ns_nc(.., 2)``,
+        # ``f(ldim + m1, m2) = ns_nc(.., 3)``, ``f(ldim + m1, ldim + m2) =
+        # ns_nc(.., 4)``.
+        full = np.block([
+            [values[2 * s1 + s2, slot, :ldim, :ldim] for s2 in range(2)]
+            for s1 in range(2)
+        ])
+        eigenvalues, vectors = np.linalg.eigh(full)
+        for j, value in requested.items():
+            if value >= 0.0:
+                eigenvalues[j] = value
+        # ``temp = sum_i vet(m1, i) lambda(i) conjg(vet(m2, i))``.
+        full = (vectors * eigenvalues) @ vectors.conj().T
+        for s1 in range(2):
+            for s2 in range(2):
+                values[2 * s1 + s2, slot, :ldim, :ldim] = full[
+                    s1 * ldim:(s1 + 1) * ldim, s2 * ldim:(s2 + 1) * ldim]
+    return values
