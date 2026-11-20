@@ -293,3 +293,27 @@ def test_a_norm_conserving_spiral_strains_both_spheres(pseudo_dir):
     np.testing.assert_allclose(strained[mask],
                                np.asarray(calculation.kinetic)[mask] / (1 + eps) ** 2,
                                rtol=1e-12, atol=1e-12)
+
+
+def test_the_decomposition_is_refused_on_a_pool_store_before_the_total(pseudo_dir):
+    """``terms=True`` is one ``jacfwd`` over every k-point, which a pool does not hold.
+
+    It failed with a TypeError inside the jit, after the total had been paid
+    for (audit 2026-11-20b #25). The total on the same pool store, one pool
+    holding every row, still runs and is the whole set's.
+    """
+    from defuqumat.parallel import PoolStore
+
+    calculation, state = _silicon(pseudo_dir)
+    whole = np.asarray(state.wavefunctions)
+    nk = whole.shape[1]
+    pooled = FrozenState(
+        wavefunctions=PoolStore(whole, np.arange(nk), nk),
+        weights=state.weights, eigenvalues=state.eigenvalues,
+    )
+    with pytest.raises(NotImplementedError, match=r"terms=True\) is not available with k-point pools"):
+        compute_stress(calculation, pooled, terms=True)
+
+    np.testing.assert_allclose(compute_stress(calculation, pooled).tensor,
+                               compute_stress(calculation, state).tensor,
+                               rtol=0, atol=1e-14)

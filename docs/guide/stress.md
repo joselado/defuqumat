@@ -208,6 +208,12 @@ cell against each other, and this internal relaxation lowers $C_{44}$.
     An electric field (`tefield` or `lelfield`) gives no stress, and so no
     `vc-relax`, as in `pw.x`.
 
+    With k-point pools (`DEFUQUMAT_POOLS`) the stress works, but
+    `get_stress(terms=True)` gives an error. The split into terms needs every
+    k-point at once, and a pool holds only its share. In `memory_mode='memory'`
+    the split also takes every k-point at once, so it needs more memory than the
+    total stress.
+
     A `vc-relax` with `cell_dynamics = 'none'` gives an error. In `pw.x` this
     input keeps the cell fixed and moves only the ions, by damped dynamics. Our
     BFGS would also relax the cell and give another crystal. For the ions at a
