@@ -1833,7 +1833,8 @@ class Calculator:
         ``bias`` (Elk's task 162) and the window ``[E_F, E_F + V]`` with one
         (``PP/src/stm.f90``). ``height`` is the crystal coordinate of the tip
         plane above the slab; ``mode="constant-current"`` with a ``current``
-        set-point returns the corrugation in bohr instead.
+        set-point and a scan range ``heights`` in bohr returns the corrugation
+        in bohr instead.
 
         A delta at the Fermi level wants a **denser k-grid** than the SCF's,
         which ``grid`` re-solves the bands on.
