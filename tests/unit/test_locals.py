@@ -257,43 +257,38 @@ def test_the_seeded_moment_is_the_one_pw_x_would_seed(written, expected, pseudo_
     assert bool(reinterpreted) == (abs(written) >= 1.0)
 
 
-def test_the_atomic_target_is_the_number_written_and_the_warning_says_so(pseudo_dir):
+def test_the_atomic_target_is_the_number_written_and_the_warning_says_so():
     """At ``starting_magnetization >= 1`` the seed is divided by ``Z_v`` and the
     ``'atomic'`` target is not (``PLAN.md`` P77c), where ``pw.x`` divides both.
 
     The warning said "This run does the same" for the whole set (audit
-    2026-11-20b #32); it now says that the target is the exception.
+    2026-11-20b #32); it now says that the target is the exception. On the
+    attributes the property reads, with oxygen's ``Z_v = 6``, so nothing is
+    built.
     """
-    import re
-    import tempfile
     import warnings
+    from types import SimpleNamespace
 
-    text = re.sub(
-        r"starting_magnetization\(1\)\s*=\s*[-\d.]+",
-        "starting_magnetization(1) = 2.0, constrained_magnetization = 'atomic', "
-        "lambda = 0.5",
-        (QE / "o-atom-lsda.in").read_text(),
-    )
-    directory = Path(tempfile.mkdtemp())
+    from defuqumat.scf.fields import constraint_targets
+
     for constraint in ("atomic", "none"):
-        (directory / "case.in").write_text(
-            text if constraint == "atomic" else text.replace(
-                ", constrained_magnetization = 'atomic', lambda = 0.5", ""))
-        system = system_from_file(directory / "case.in")
-        pseudos = tuple(
-            read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
-        )
+        stub = SimpleNamespace(
+            system=SimpleNamespace(structure=SimpleNamespace(ntyp=1),
+                                   starting_magnetization=(2.0,),
+                                   constrained_magnetization=constraint),
+            pseudos=(SimpleNamespace(z_valence=6.0),))
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            calculation = Calculation(system, pseudos)
-            seed = calculation.starting_magnetization
+            seed = Calculation.starting_magnetization.fget(stub)
         assert seed[0] == pytest.approx(2.0 / 6.0)
         said = [str(w.message) for w in caught if "Bohr magnetons" in str(w.message)]
-        assert said and all("starting guess" in one for one in said)
-        assert any("'atomic' constraint target is the exception" in one
-                   for one in said) == (constraint == "atomic")
-        if constraint == "atomic":
-            assert np.asarray(calculation.magnetic_field.targets).ravel()[0] == 2.0
+        assert len(said) == 1 and "starting guess" in said[0]
+        assert ("'atomic' constraint target is the exception" in said[0]) == (
+            constraint == "atomic")
+    # and the target is the number written, as Calculation._build_magnetic_field
+    # hands it system.starting_magnetization undivided
+    targets = constraint_targets("atomic", [0], (2.0,), (0.0,), (0.0,), None, 1, False)
+    assert np.asarray(targets).ravel()[0] == 2.0
 
 
 def test_the_collinear_and_noncollinear_seeds_use_the_same_rule(pseudo_dir):
