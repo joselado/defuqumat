@@ -848,3 +848,30 @@ def test_a_resume_that_changes_nbnd_drops_the_occupations_and_says_so(
 
     assert resumed.converged
     assert [w for w in caught if "nbnd has changed" in str(w.message)]
+
+
+def test_a_mixer_history_from_another_cutoff_is_dropped_not_fatal(pseudo_dir, tmp_path):
+    """AUDIT-2026-11-20b #22: ``mixing_from`` pointing at a run on another FFT grid.
+
+    The history of a run at 12 Ry (a 16^3 grid) poured into the same cell at
+    16 Ry (20^3) raised ``ValueError`` at the first mix, in both fits, where the
+    driver's own comment says a mixer that will not load must cost the history
+    and never the run. It now runs on, with the warning that says the history
+    went. Only the default fit is run here; the flat one raised from another
+    line, and ``test_mixing.py`` holds both on the mixer alone.
+    """
+    text = (Path(__file__).resolve().parents[2] / "benchmarks" / "si-1k.in").read_text()
+    low = Calculator.from_text(text, pseudo_dir=pseudo_dir, announce=False)
+    high = Calculator.from_text(text.replace("ecutwfc=12.0", "ecutwfc=16.0"),
+                                pseudo_dir=pseudo_dir, announce=False)
+    assert low.calculation.basis.dense.grid != high.calculation.basis.dense.grid
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        run_scf(low.system, low.pseudos, max_iterations=2, checkpoint_dir=tmp_path,
+                checkpoint_every=1, verbose=False)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = run_scf(high.system, high.pseudos, max_iterations=3,
+                         mixing_from=tmp_path, verbose=False)
+    assert result.iterations == 3
+    assert any("so it is dropped" in str(w.message) for w in caught)

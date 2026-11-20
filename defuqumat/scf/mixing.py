@@ -351,6 +351,40 @@ class AndersonMixer(Mixer):
     def _drop_gram(self):
         self._gram = self._norms = self._fit_mask = None
 
+    def _drop_another_length(self, size: int, fit_size: int | None) -> None:
+        """Reset, with a warning, when the history holds vectors of another length.
+
+        A history poured in by ``run_scf(mixing_from=...)`` from a run at another
+        ``ecutrho`` (another FFT grid), another spin regime, with or without a
+        Hubbard ``ns`` or a meta-GGA ``tau``, or with another set of augmented
+        atoms is not a set of vectors this run can combine with its own. The
+        driver's checks catch only a change of layout, and without this the
+        first new row of the Gram matrix, or the combination after it, raised
+        out of the run. The packed length and the fit length are compared
+        apart: ``rho_ddot`` has no ``becsum`` term, so another set of augmented
+        atoms changes the first and leaves the second.
+        """
+        stored = {int(np.size(v)) for v in (*self._densities, *self._residuals)}
+        stale = bool(stored) and stored != {int(size)}
+        what = f"vectors of length {sorted(stored)} where this run packs {int(size)}"
+        if fit_size is not None and self._fits:
+            fits = {int(np.size(f)) for f in self._fits}
+            if fits != {int(fit_size)}:
+                stale = True
+                what += (f", and fit vectors of length {sorted(fits)} where this "
+                         f"run's are {int(fit_size)}")
+        if not stale:
+            return
+        warnings.warn(
+            f"the Anderson history holds {what} (another FFT grid, spin regime, set of "
+            f"augmented atoms, Hubbard ns or meta-GGA tau, as a history restored "
+            f"with mixing_from from another run can be), so it is dropped. The "
+            f"density is unaffected -- this costs the iterations the history "
+            f"would have saved, and nothing else",
+            RuntimeWarning, stacklevel=3,
+        )
+        self.reset()
+
     def mix(self, rho_in, rho_out, exclude=None, fit=None):
         """One Anderson step; ``exclude`` is left out of the fit and still mixed.
 
@@ -397,6 +431,7 @@ class AndersonMixer(Mixer):
         rho_in = np.asarray(rho_in).ravel()
         residual = np.asarray(rho_out).ravel() - rho_in
         segment = None
+        self._drop_another_length(rho_in.size, None if fit is None else np.size(fit))
         if fit is not None:
             if len(self._fits) != len(self._residuals):
                 # A history written without fit vectors -- a checkpoint from

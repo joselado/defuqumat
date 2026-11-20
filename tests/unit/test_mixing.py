@@ -383,3 +383,63 @@ def test_every_mixer_accepts_exclude():
         mixer = get_mixer(name, beta=0.3)
         out = mixer.mix(np.zeros(8), np.ones(8), exclude=slice(4, 8))
         assert np.all(np.isfinite(out))
+
+
+@pytest.mark.parametrize("fitted", [False, True])
+def test_a_history_of_another_length_is_dropped_with_a_warning(fitted):
+    """AUDIT-2026-11-20b #22: a history restored from another run is dropped, not combined.
+
+    ``run_scf(mixing_from=...)`` pours a saved history into the mixer, and a run
+    at another ``ecutrho``, spin regime or set of companions packs vectors of
+    another length. The first new Gram row (``fit[i] @ fit[j]``) or the masked
+    flat fit raised ``ValueError`` out of the run. Now the history goes, with a
+    warning, and the step is the first step of a fresh mixer.
+    """
+    rng = np.random.default_rng(22)
+    carried = AndersonMixer(beta=0.4)
+    for _ in range(3):
+        rho = rng.standard_normal(10)
+        fit = rng.standard_normal(6) if fitted else None
+        carried.mix(rho, rho + 0.1 * rng.standard_normal(10), fit=fit)
+    rho_in, rho_out = rng.standard_normal(12), rng.standard_normal(12)
+    fit = rng.standard_normal(8) if fitted else None
+    with pytest.warns(RuntimeWarning, match="dropped"):
+        got = carried.mix(rho_in, rho_out, fit=fit)
+    expected = AndersonMixer(beta=0.4).mix(rho_in, rho_out, fit=fit)
+    np.testing.assert_array_equal(got, expected)
+    assert len(carried._residuals) == 1 and all(r.size == 12 for r in carried._residuals)
+
+
+def test_a_fit_vector_of_another_length_alone_drops_the_history():
+    """The packed length can agree while the fit's does not, and the other way round.
+
+    ``rho_ddot`` has no ``becsum`` term, so another set of augmented atoms moves
+    the packed length and leaves the fit's; a fit of another length on a packed
+    vector of the same length is the other half. Both drop the history, and a
+    history of the right lengths is kept.
+    """
+    rng = np.random.default_rng(23)
+
+    def exercised():
+        mixer = AndersonMixer(beta=0.4)
+        for _ in range(3):
+            rho = rng.standard_normal(10)
+            mixer.mix(rho, rho + 0.1 * rng.standard_normal(10), fit=rng.standard_normal(6))
+        return mixer
+
+    mixer = exercised()
+    with pytest.warns(RuntimeWarning, match="fit vectors of length"):
+        mixer.mix(rng.standard_normal(10), rng.standard_normal(10),
+                  fit=rng.standard_normal(7))
+    assert len(mixer._residuals) == 1
+    mixer = exercised()
+    with pytest.warns(RuntimeWarning, match="where this run packs 11"):
+        mixer.mix(rng.standard_normal(11), rng.standard_normal(11),
+                  fit=rng.standard_normal(6))
+    assert len(mixer._residuals) == 1
+    mixer = exercised()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        mixer.mix(rng.standard_normal(10), rng.standard_normal(10),
+                  fit=rng.standard_normal(6))
+    assert len(mixer._residuals) == 4
