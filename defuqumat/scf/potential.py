@@ -988,9 +988,9 @@ def warn_about_the_vacuum_hold(density_r, rho_core=None) -> None:
             f"{LMBJ_RHO_HOLD:g} < n < {10 * LMBJ_RHO_HOLD:g} has {pieces} separate "
             "pieces. A mean per face is taken only for the two faces of one slab "
             "(the shell in two runs of planes along one axis, one gap between them "
-            "all vacuum and the other all matter); here the pieces share one mean, "
-            "so a vacuum next to a piece whose tail differs from the others is held "
-            "at the shared value. Two slabs in one cell, a molecule above a slab, "
+            "all vacuum and the other all matter); here some of the pieces share a "
+            "mean, so a vacuum next to a piece whose tail differs from the others is "
+            "held at the shared value. Two slabs in one cell, a molecule above a slab, "
             "a closed cavity and a slab whose surface is not spanned by two of the "
             "cell vectors are such cells",
             RuntimeWarning,
