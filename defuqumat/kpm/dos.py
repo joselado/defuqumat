@@ -265,6 +265,11 @@ def default_window(bottom: float, fermi_energy, broadening: float, delta_e: floa
     return emin, emax
 
 
+SPIN_RESOLVED_NEEDS_A_SPINOR = (
+    "spin_resolved needs a spinor (noncollinear) run; a collinear run's spin channels are "
+    "already the two rows of dos")
+
+
 def run_kpm_dos(
     system,
     pseudos,
@@ -339,6 +344,10 @@ def run_kpm_dos(
         calculation: the SCF's own, moved to ``kpoints`` if given.
     """
     if spin_resolved:
+        # at the door: the move below and the whole scalar KPM came before it (#27)
+        if not getattr(calculation.system if calculation is not None else system,
+                       "noncolin", False):
+            raise ValueError(SPIN_RESOLVED_NEEDS_A_SPINOR)
         calculation, system, kpoints, k_batch = _on_the_whole_grid(
             system, pseudos, kpoints, k_batch, calculation)
     setup = kpm_setup(system, pseudos, density, kpoints=kpoints, k_batch=k_batch, ns=ns,
@@ -452,8 +461,7 @@ def spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random, 
     from defuqumat.kpm.moments import spin_moments
 
     if len(hamiltonians) != 1 or not hasattr(hamiltonians[0], "_as_state"):
-        raise ValueError("spin_resolved needs a spinor (noncollinear) run; a collinear "
-                         "run's spin channels are already the two rows of dos")
+        raise ValueError(SPIN_RESOLVED_NEEDS_A_SPINOR)
     hamiltonian = hamiltonians[0]
     key = jax.random.fold_in(jax.random.PRNGKey(seed), 0)
     raw = np.asarray(spin_moments(hamiltonian, centre, half, key, n_moments, n_random,

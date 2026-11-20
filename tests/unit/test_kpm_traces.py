@@ -355,3 +355,26 @@ def test_an_explicit_wedge_is_refused_and_an_explicit_whole_grid_is_kept():
     whole_grid_calculation(stand_in)
     assert len(moved) == 1 and moved[0].nk == 8
 
+
+def test_spin_resolved_on_a_collinear_run_is_refused_before_the_whole_grid(monkeypatch):
+    """The spinor test sits at the door of ``run_kpm_dos`` (audit 2026-11-20 #27).
+
+    It used to sit in ``spin_resolved_dos``, after the move to the whole grid,
+    the Lanczos interval, the scalar moments and the control variate, so a
+    collinear call paid for the whole scalar DOS on the whole grid and then
+    raised. A spinor passes the door and reaches the move.
+    """
+    from types import SimpleNamespace
+
+    import defuqumat.kpm.dos as dos
+
+    def reached(*args, **kwargs):
+        raise LookupError("the whole-grid move was reached")
+
+    monkeypatch.setattr(dos, "_on_the_whole_grid", reached)
+    for nspin in (1, 2):
+        with pytest.raises(ValueError, match="needs a spinor"):
+            dos.run_kpm_dos(SimpleNamespace(noncolin=False, nspin=nspin), (), None,
+                            spin_resolved=True)
+    with pytest.raises(LookupError, match="reached"):
+        dos.run_kpm_dos(SimpleNamespace(noncolin=True, nspin=4), (), None, spin_resolved=True)
