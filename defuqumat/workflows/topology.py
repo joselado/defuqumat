@@ -42,7 +42,7 @@ import numpy as np
 
 from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation, default_nbnd
-from defuqumat.workflows.nscf import fixed_density_ethr
+from defuqumat.workflows.nscf import _say_what_did_not_converge, fixed_density_ethr
 from defuqumat.system.builder import System
 from defuqumat.system.kpoints import KPoints, for_spin
 from defuqumat.topology.berry import BerryCurvature
@@ -403,9 +403,16 @@ class DFTSource:
             )
         hamiltonians = (hamiltonians[self.channel],)
         ethr = fixed_density_ethr(self.conv_thr, calculation.nelec)
-        eigenvalues, wavefunctions = calculation.diagonalize(
-            hamiltonians, nbnd, None, ethr
+        # The step counts are read, as the NSCF route reads them (audit
+        # 2026-11-20b #23): this solve starts from random vectors at a tight
+        # fixed-density ``ethr`` and has no later iteration, so a band cut off
+        # at the budget would otherwise reach the invariant as if solved. The
+        # compiled solve returns the counts either way, so nothing recompiles.
+        eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
+            hamiltonians, nbnd, None, ethr, return_steps=True
         )
+        _say_what_did_not_converge(steps, notcnv, ethr, float(self.conv_thr), nbnd,
+                                   stacklevel=4)
         self._check_gap(np.asarray(eigenvalues[0]), points)
         velocity = None
         if keep_velocity:

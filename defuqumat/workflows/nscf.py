@@ -28,7 +28,7 @@ from defuqumat.batching import resolve_k_batch, resolve_wfc_store
 from defuqumat.parallel import current_pools
 from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation
-from defuqumat.solvers.davidson import DAVID_NDIM, ETHR_MIN
+from defuqumat.solvers.davidson import DAVID_NDIM, ETHR_MIN, MAX_ITERATIONS
 from defuqumat.system.builder import System
 from defuqumat.system.cell import Cell
 from defuqumat.system.kpoints import KPoints, for_spin as kpoints_for_spin
@@ -469,7 +469,8 @@ def _require_a_matching_calculation(calculation, kpoints, k_batch, david) -> Non
         )
 
 
-def _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd) -> None:
+def _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd, *,
+                               stacklevel: int = 3) -> None:
     """Warn when the eigensolver ran out of iterations. Nothing used to.
 
     **The solver has always counted this and nothing has ever read it.** A
@@ -488,6 +489,9 @@ def _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd) -> None:
     So the message names the number of k-points, the worst band count, and the
     two knobs -- because the useful response is almost always to loosen
     ``conv_thr`` rather than to raise the iteration budget.
+
+    The topology sources' fixed-density solve reports through here too
+    (audit 2026-11-20b #23), with ``stacklevel`` pointing past its own frame.
     """
     unsettled = np.asarray(notcnv)
     if not unsettled.size or not (unsettled > 0).any():
@@ -498,16 +502,28 @@ def _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd) -> None:
     taken = np.asarray(steps)
     warnings.warn(
         f"the fixed-density solve did not converge at {stalled} of {total} "
-        f"k-points: up to {worst} of {nbnd} bands are unsettled and the worst "
-        f"k-point took {int(taken.max())} Davidson steps, at ethr = {ethr:.1e} "
-        f"(from conv_thr = {conv_thr:.1e}). There is no later iteration to fix "
+        f"k-points ({_unsettled_points(unsettled)}): up to {worst} of {nbnd} "
+        f"bands are unsettled and the worst k-point took {int(taken.max())} "
+        f"Davidson steps (the default budget is {MAX_ITERATIONS}), at ethr = "
+        f"{ethr:.1e} (from conv_thr = {conv_thr:.1e}). There is no later iteration to fix "
         "this -- the density is fixed -- so these wavefunctions are what every "
         "quantity built on them will use. Loosen conv_thr (ethr is "
         "0.1 x conv_thr / nelec, QE's setup.f90 rule) before raising the "
         "iteration budget: a threshold the solve cannot reach costs the whole "
         "budget at every k-point and is where an overlap loses positivity",
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
+
+
+def _unsettled_points(unsettled: np.ndarray) -> str:
+    """The k-points a solve left bands unsettled at, for a warning.
+
+    ``unsettled`` is the solver's ``notcnv``, ``(nspin, nk)`` or ``(nk,)``; the
+    k index is its last axis, and the first eight are named.
+    """
+    named = np.unique(np.argwhere(np.asarray(unsettled) > 0)[:, -1]).tolist()
+    more = " ..." if len(named) > 8 else ""
+    return f"k-point indices {named[:8]}{more}"
 
 
 #: How much of a derived k-set's per-k tables memory mode builds at once,
