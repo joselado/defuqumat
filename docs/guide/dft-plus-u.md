@@ -189,6 +189,12 @@ of the penalty is not part of the reported total energy.
     reduces to the fixed spin moment that `constrained_magnetization` already
     gives.
 
+    `starting_ns_eigenvalue` gives an error with `scf_solver='newton-krylov'`.
+    `pw.x` applies it once, to the occupation matrix of the first iteration of
+    the mixing loop, and the Newton solver has no such iteration. You can run the
+    request with the mixing loop and give that result to the Newton solver with
+    `starting_from`, or give the occupation matrix you want with `starting_ns`.
+
     `hubbard_slater = 'yukawa'` needs a PAW dataset. A norm-conserving or
     ultrasoft orbital would give a far too small $F^0$, so it gives an error.
     It also gives an error when the partial wave has a norm below 0.7 inside the

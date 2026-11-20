@@ -9392,6 +9392,28 @@ def run_scf(
         )
     solver_result = None
     solved_tau = None
+    if (get_scf_solver(scf_solver) is not None and calculation.is_hubbard
+            and calculation.hubbard.starting_ns
+            and starting_density is None and starting_ns is None):
+        # The loop's ``ns_adj`` gate below, met by the hand-over iteration: a
+        # residual solver leaves ``starting_density`` and ``starting_ns`` as
+        # they were, so its first loop iteration is iteration 1 of a fresh run.
+        # The requested eigenvalues were then imposed on the *converged* ``ns``
+        # and the run reported convergence with it: on ni-u-unstable.in with
+        # starting_ns_eigenvalue(5,2,1) = 0.5 the total moved by -2.76e-2 Ry and
+        # ``SCFResult.ns`` was not the states' occupation matrix
+        # (audit 2026-11-20c #3). ``pw.x`` has no residual solver to compare with.
+        raise NotImplementedError(
+            "starting_ns_eigenvalue with a residual SCF solver "
+            f"(scf_solver={scf_solver!r}) is not implemented: pw.x applies it "
+            "once, to the occupation matrix of the first iteration of the "
+            "mixing loop (ns_adj in electrons_scf), and a residual solver has "
+            "no such iteration, so the request would be ignored during the "
+            "solve and imposed on the converged matrix afterwards. Use "
+            "scf_solver='mixing', or converge a mixing run with it and pass "
+            "that result to the residual solver as starting_from=, or give the "
+            "occupation matrix you want as starting_ns="
+        )
     if get_scf_solver(scf_solver) is not None:
         (
             rho, becsum_state, ns_state, solved_tau, wavefunctions, solver_result
