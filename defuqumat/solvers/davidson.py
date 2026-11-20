@@ -182,7 +182,7 @@ DAVID_NDIM = 4
 #:
 #: ``cegterg``'s own ``maxter`` is 20, and ``c_bands.f90`` re-enters it while
 #: ``ntry <= 5`` in ``test_exit_cond``, each time seeded with the current
-#: estimate. ``ntry`` is counted before the test (``c_bands.f90:583-587``), so
+#: estimate. ``ntry`` is counted before the test (``c_bands.f90:880-884``), so
 #: that is six calls and 120 steps outside an SCF, not 100. Inside an SCF
 #: ``pw.x`` re-enters only while more than five bands are unconverged, and with
 #: one to five it moves on to the density; this loop does not do that, and runs
@@ -258,7 +258,10 @@ def tangent_width(ethr):
     ``max(ethr, 1e-5)``. That is the case of the Newton residual
     (``scf/residual.py``), which passes a scalar and is differentiated under
     ``jvp = 'autodiff'``. The scalar branch is reached only by a direct call to
-    :func:`davidson_eigensolver`, which no module makes. The two widths differ
+    :func:`davidson_eigensolver`, or to :func:`_every_k` with a scalar, and no
+    module of the package makes either (``tools/benchmark.py``,
+    ``tools/gpu/davidson_profile.py`` and ``test_empty_band_threshold.py`` do,
+    undifferentiated). The two widths differ
     only for ``ethr`` above 2e-6, so at the Newton default (``ethr`` 1e-11 at
     ``conv_thr`` 1e-8) both are 1e-5 (audit 2026-11-20b #20). The floor on the
     vector was added on 2026-11-15 (audit ``hamiltonian`` F1, ``d719e1aa``),

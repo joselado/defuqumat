@@ -191,7 +191,7 @@ def say_what_did_not_settle_at_k_plus_q(steps, notcnv, ethr, nbnd) -> None:
     the preconditioner of the Sternheimer solve at ``q`` are built from, and the
     solve has no SCF around it to correct a band left short. ``pw.x`` prints
     ``c_bands: N eigenvalues not converged`` in the same case
-    (``c_bands.f90:326``). On silicon at ``ethr = 1e-13`` every k-point settles
+    (``c_bands.f90:326-328``). On silicon at ``ethr = 1e-13`` every k-point settles
     in 18 to 36 steps (2x2x2 and 3x3x3 meshes, 4 and 8 bands, three ``q``), so
     the budget is reached only by a solve that is in trouble.
     """
