@@ -285,7 +285,13 @@ itself needs 0.016 s.
     smaller than the PAW radius of `O.pz-kjpaw`. The template must have the same
     lattice vectors, not only the same lattice, the same atoms up to one
     translation, and the same spin setting: unpolarized, collinear for `nspin=2`,
-    or noncollinear for a magnetic noncollinear run. A template from an Elk run
+    or noncollinear for a magnetic noncollinear run. In some cells more than one
+    translation maps the atoms, for example in an antiferromagnet whose two
+    sublattices are related by half a lattice vector. Then the code takes the
+    translation that puts our magnetic moments along the moments of the
+    template, so the template must have the same magnetic order, set by
+    `bfcmt` in `elk.in`. If the moments of the template cannot decide, the
+    code takes the smallest translation and gives a warning. A template from an Elk run
     with DFT+U gives an error. Its `STATE.OUT` holds the potential matrix
     `vmatmt` of the template density, and Elk would use it in its first loop
     beside our density. A template from the same `elk.in` without `dft+u`

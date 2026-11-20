@@ -1,0 +1,52 @@
+! Two O atoms in a 6 bohr cubic cell, at the centre and at the origin, the
+! centre listed FIRST, antiparallel bfcmt: a cell invariant under the
+! translation (1/2,1/2,1/2) with an antiferromagnetic pair (AUDIT-2026-11-20 #37).
+! A template for tests/unit/test_elk_allelectron.py, run with the elkpy build of
+! Elk 11.0.2 on 2026-11-20, one loop. Elk prints 96 crystal symmetries: the 48
+! of the cube, and each again with the translation and a spin flip. The moments
+! after the loop are +0.431 on the centre and -0.431 on the origin, opposite to
+! bfcmt, which is Elk's sign.
+tasks
+  0
+
+sppath
+  './'
+
+avec
+  6.0  0.0  0.0
+  0.0  6.0  0.0
+  0.0  0.0  6.0
+
+atoms
+  1
+  'O.in'
+  2
+  0.5  0.5  0.5   0.0  0.0  -0.05
+  0.0  0.0  0.0   0.0  0.0   0.05
+
+spinpol
+  .true.
+
+xctype
+  3
+
+ngridk
+  1  1  1
+
+lmaxo
+  3
+
+gmaxvr
+  7.0
+
+rgkmax
+  5.0
+
+tshift
+  .false.
+
+maxscl
+  1
+
+nwrite
+  1

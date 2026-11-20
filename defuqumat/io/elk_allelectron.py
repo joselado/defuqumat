@@ -67,12 +67,22 @@ __all__ = ["all_electron_state", "write_elk_state_from"]
 FOURPI = 4.0 * np.pi
 
 
-def _match_atoms(calculation, geometry):
+def _match_atoms(calculation, geometry, moments=None):
     """``(order, shift)``: defuqumat atom of each Elk atom, and the frame shift.
 
     Elk's positions are ``ours + shift`` modulo the lattice for one common
     ``shift`` (``tshift`` moves the origin); found from the first atom and
     checked on every other.
+
+    **In a cell with an internal translation more than one shift maps the
+    positions** (two O at 0 and (1/2, 1/2, 1/2) in a cubic cell, NiO AFM-II),
+    and for a magnet they are not the same state: the wrong one writes our
+    moments onto the opposite sublattice of Elk's (audit 2026-11-20 #37).
+    ``moments = (ours, elk)``, our site moments by our atom and the template's
+    by Elk atom, ``(nat, ndmag)`` each, picks the shift whose map puts our
+    moments along the template's (the largest ``sum ours . elk``). What is left
+    tied goes to the shift nearest zero, and a tie that still maps different
+    moments is warned about.
     """
     system = calculation.system
     at = np.asarray(system.cell.at, dtype=float)
@@ -93,7 +103,7 @@ def _match_atoms(calculation, geometry):
              for t in system.structure.types]
     elk_names = [_element(geometry.species[i])
                  for i, n in enumerate(geometry.natoms) for _ in range(n)]
-    best = None
+    found = []
     for candidate in range(len(ours)):
         if names[candidate] != elk_names[0]:
             continue
@@ -107,13 +117,47 @@ def _match_atoms(calculation, geometry):
                 break
             order.append(int(hits[0]))
         else:
-            best = (np.array(order), shift @ at)
-            break
-    if best is None:
+            found.append((np.array(order), shift @ at))
+    if not found:
         raise ValueError(
             "the atoms of the Elk template and of this calculation do not coincide, "
             "even up to one common translation of the origin")
-    return best
+    if len(found) == 1:
+        return found[0]
+    if moments is not None:
+        mine, theirs = (np.asarray(m, dtype=float).reshape(len(ours), -1) for m in moments)
+        score = np.array([np.sum(mine[order] * theirs) for order, _ in found])
+        scale = max(np.abs(mine).max() * np.abs(theirs).max() * len(ours), 1e-300)
+        found = [f for f, x in zip(found, score) if x > score.max() - 1e-6 * scale]
+    def distance(f):  # of the shift from zero, modulo the lattice
+        frac = f[1] @ np.linalg.inv(at)
+        return float(np.linalg.norm((frac - np.round(frac)) @ at))
+
+    found.sort(key=distance)
+    if moments is not None and len(found) > 1:
+        pattern = mine[found[0][0]]
+        if any(not np.allclose(mine[order], pattern, atol=1e-3) for order, _ in found[1:]):
+            import warnings
+
+            warnings.warn(
+                f"{len(found)} translations map this cell onto the Elk template, and "
+                "they put our site moments on different Elk atoms, while the "
+                "template's moments do not tell them apart. The one nearest zero "
+                "is taken; give the template the moments of this run (bfcmt in "
+                "elk.in) to fix the map.", stacklevel=3)
+    return found[0]
+
+
+def _site_moments(state) -> np.ndarray:
+    """``(natmtot, ndmag)``: the muffin-tin moment of each Elk atom, ``l = 0`` of ``magmt``."""
+    species_of = state.geometry.species_of()
+    out = np.zeros((len(species_of), state.ndmag))
+    for ias, s in enumerate(species_of):
+        r = np.asarray(state.rsp[s], dtype=float)[:state.nrmt[s]]
+        for k in range(state.ndmag):
+            out[ias, k] = np.sqrt(FOURPI) * np.trapezoid(
+                np.asarray(state.magmt[0, :len(r), ias, k]) * r ** 2, r)
+    return out
 
 
 def _element(name: str) -> str:
@@ -331,7 +375,10 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
             f"{held}; run Elk in the same spin regime for the template (ndmag = 1 "
             "for nspin = 2, a noncollinear ndmag = 3 for a magnetic spinor run)")
     geometry = base.geometry
-    order, shift = _match_atoms(calculation, geometry)
+    pair = None
+    if spinpol and getattr(result, "site_moments", None) is not None:
+        pair = (np.asarray(result.site_moments), _site_moments(base))
+    order, shift = _match_atoms(calculation, geometry, moments=pair)
 
     at = np.asarray(system.cell.at, dtype=float)
     rho = np.asarray(result.density, dtype=float)
@@ -408,10 +455,7 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     if spinpol:
         state = dataclasses.replace(state, magmt=magmt,
                                     magir=np.moveaxis(interstitial[1:], 0, -1))
-        moments = np.array([[np.sqrt(FOURPI) * np.trapezoid(
-            magmt[0, :base.nrmt[s], ias, k] * np.asarray(base.rsp[s])[:base.nrmt[s]] ** 2,
-            np.asarray(base.rsp[s])[:base.nrmt[s]]) for k in range(ndmag)]
-            for ias, s in enumerate(species_of)])
+        moments = _site_moments(state)
         moments = np.round(moments[:, 0] if ndmag == 1 else moments, 3)
     if spinpol and params.xctype[0] >= 20:
         import warnings

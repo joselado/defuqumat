@@ -221,6 +221,55 @@ def test_the_core_join_spans_a_factor_e():
         assert len(between) and np.all((between > 1.0) & (between < 2.0))
 
 
+AFM_TRANSLATED = """&control
+ calculation='scf'
+/
+&system
+ ibrav=1, celldm(1)=6.0, nat=2, ntyp=2, ecutwfc=20.0, ecutrho=80.0, nspin=2,
+ starting_magnetization(1)=-0.5, starting_magnetization(2)=0.5,
+ occupations='smearing', smearing='gaussian', degauss=0.02
+/
+&electrons
+ mixing_beta=0.3
+/
+ATOMIC_SPECIES
+ O1 15.99994 O.pz-kjpaw.UPF
+ O2 15.99994 O.pz-kjpaw.UPF
+ATOMIC_POSITIONS crystal
+ O1 0.0 0.0 0.0
+ O2 0.5 0.5 0.5
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0
+"""
+
+
+def test_an_internal_translation_keeps_the_sublattices(tmp_path):
+    """Two O in a 6 bohr cube, at 0 and at the centre, antiparallel (AUDIT-2026-11-20 #37).
+
+    The cell is invariant under (1/2, 1/2, 1/2), so the shift 0 and that
+    translation both map the positions. Elk's template lists the centre first,
+    with +0.431 there and -0.431 at the origin; our run has the same signs on
+    the same sites. Matching took the first shift that worked, which pairs
+    Elk's centre with our origin and wrote every moment on the opposite site.
+    The shift is now chosen by the template's moments. Labels ``O1``/``O2``, so
+    the old element reading of #17 does not interfere. One SCF iteration.
+    """
+    import shutil
+
+    template = TEMPLATE.parent / "o2_afm_translated"
+    calc = Calculator.from_text(AFM_TRANSLATED, pseudo_dir=PSEUDO, announce=False)
+    result = calc.get_scf(max_iterations=1)
+    ours = np.asarray(result.site_moments)[:, 0]
+    assert ours[0] < -0.05 and ours[1] > 0.05
+    calc.write_elk_state(tmp_path, template, result)
+    shutil.copy(template / "GEOMETRY.OUT", tmp_path)
+    written = _site_moments(ElkState.read(tmp_path))[:, 0]
+    elk = _site_moments(ElkState.read(template))[:, 0]
+    assert elk[0] > 0.3 and elk[1] < -0.3
+    assert np.all(np.sign(written) == np.sign(elk))
+
+
 def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
     import dataclasses
