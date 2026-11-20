@@ -230,13 +230,23 @@ def tangent_width(ethr):
     """The width the subspace solve's tangent is regularised at (P148).
 
     ``subspace._eigh_regularised`` bounds the mixing kernel at ``1/(2 eta)``,
-    and ``eta`` is the solver's own unit, ``empty_ethr = max(5 ethr, 1e-5)``,
     since the members of a degenerate block are converged separately only to
-    the promise on them. A per-band vector carries that unit as its largest
-    entry only when the row has an empty band (``cegterg.f90:129``); a row with
-    every band occupied, or ``diago_full_acc``, holds the bare ``ethr``, down to
-    1e-13, which turned the bound off. So the floor is applied to the vector too
-    (audit 2026-11-15, ``hamiltonian`` F1). Traced, so it rides ``ethr``'s slot.
+    the promise on them. The two forms of ``ethr`` are read differently:
+
+    * a scalar is the bare ``ethr``, and ``eta`` is the solver's own unit,
+      ``empty_ethr = max(5 ethr, 1e-5)``;
+    * a per-band vector is read as **already scaled**: ``eta = max(max(ethr),
+      1e-5)``, with no factor of 5. Its largest entry is ``empty_ethr`` only
+      when the row has an empty band (``cegterg.f90:129``), and then the two
+      forms agree. A row with every band occupied, or ``diago_full_acc``, holds
+      the bare ``ethr``, so there ``eta`` is the floor or ``max(ethr)``, five
+      times below the scalar's unit while ``ethr`` is above 2e-6:
+      ``tangent_width(jnp.full(4, 1e-4))`` is 1e-4 and ``tangent_width(1e-4)``
+      is 5e-4. The floor alone was added (audit 2026-11-15, ``hamiltonian``
+      F1), since the bare 1e-13 turned the bound off. No differentiated caller
+      passes a vector (audit 2026-11-20 #30), so this changes no derivative.
+
+    Traced, so it rides ``ethr``'s slot.
     """
     ethr = jnp.asarray(ethr)
     if jnp.ndim(ethr) == 0:
