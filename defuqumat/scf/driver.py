@@ -10594,7 +10594,14 @@ def run_scf(
                 # On PAW the shift is measured on the current states and is
                 # exact for the newest entry only. Dropping the history instead
                 # was measured and is worse (PAW nickel: ``dr2`` swinging up to
-                # 5e-3 after each reset, against 2e-4 turning it).
+                # 5e-3 after each reset, against 2e-4 turning it). That was on
+                # the flat fit. Under the default ``rho_ddot`` fit (P146) the
+                # mixer holds fit vectors, and ``rotate_history`` drops the
+                # whole history at every turn (AUDIT-2026-11-20b #3). A patch
+                # that turns the fit vectors instead is measured and held: on
+                # the oblique cobalt it moves the iterations by -11 or +7
+                # depending on the arithmetic order, and it would move I78,
+                # I112 and I113.
                 mixer.rotate_history(
                     turn_packed,
                     lambda vector: turn_packed(vector, shifted=False),
