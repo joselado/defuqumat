@@ -303,6 +303,14 @@ Before we trust the numbers of a new crystal, we check four things.
     With `nspin = 2` and a magnetic moment, `lmbj` runs, but this case is not
     checked yet. We checked only the case with no moment, which gives the same
     result as `nspin = 1`.
+    In the vacuum, `lmbj` holds the potential at its value in the tail of the
+    density, where 1e-5 < n < 1e-4. For a slab this value is taken for each
+    face on its own. So a slab with two different faces, for example a Janus
+    layer, has two values in its two vacua, and the potential has a step in
+    the middle of the vacuum. In any other cell one value is used for the whole
+    cell. This is right for one molecule or one wire in a box. For two slabs in
+    one cell, a molecule above a slab or a closed cavity, the separate tails
+    share one value, and the code warns after the SCF.
     With `tb09` or `bj06` the code warns that the total energy is not the
     energy of any functional, and forces, stress, phonons and the responses give
     an error.

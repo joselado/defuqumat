@@ -86,6 +86,8 @@ __all__ = [
     "lmbj_coefficient_from_average",
     "lmbj_vacuum_g",
     "hold_vacuum_potential",
+    "hold_faces",
+    "hold_pieces",
     "LMBJ_RHO_HOLD",
     "LMBJ_PARAMETERS",
     "LMBJ_SIGMA",
@@ -448,9 +450,79 @@ LMBJ_RS_THRESHOLD = 5.0
 #: above PBE's, noisy, where the Becke-Johnson asymptote is
 #: ``(1/pi) sqrt(5/12) kappa`` = 0.33 Ry. Held at its mean over the shell
 #: ``LMBJ_RHO_HOLD < n < 10 LMBJ_RHO_HOLD``, where the tail is clean, the vacuum
-#: is flat; the switch is an erf in ``ln n`` about a decade wide.
+#: is flat; the switch is an erf in ``ln n`` about a decade wide, centred on
+#: ``LMBJ_RHO_HOLD``. Since audit 2026-11-20 #9 and #10 the mean is taken per
+#: face when the shell is the two faces of one slab (:func:`hold_faces`).
 LMBJ_RHO_HOLD = 1.0e-5
 LMBJ_HOLD_WIDTH = 0.5 * 2.302585092994046  # ln(10)/2: the switch spans about a decade
+
+
+def hold_faces(rho, rho_hold=LMBJ_RHO_HOLD):
+    """Whether each channel's shell is the two faces of one slab, axis by axis.
+
+    Args:
+        rho: ``(nspin, ...)``, each channel's ``2 n_sigma`` on the grid, the
+            density :func:`hold_vacuum_potential` takes.
+
+    Returns one ``(two, second)`` pair per grid axis: ``two`` is ``(nspin,)``,
+    true where that channel's shell is two faces separated along the axis, and
+    ``second`` is ``(nspin, n_axis)``, true for the planes nearer the second
+    face than the first.
+
+    A plane is a plane of constant fractional coordinate along the axis. It is
+    *in the shell* if one of its points has ``rho_hold < n < 10 rho_hold``, *in
+    vacuum* if every point has ``n <= rho_hold``, and *in matter* if every
+    point has ``n >= 10 rho_hold``. The shell is two faces along the axis when
+    its planes form exactly two runs, periodically, and of the two gaps between
+    the runs one holds vacuum planes and no matter plane and the other matter
+    planes and no vacuum plane: the two surfaces of one slab, whose normal is
+    the axis. At most one axis can pass, because a vacuum plane along one axis
+    and a matter plane along another would cross. Each plane is then given the
+    face whose nearest shell plane is nearer, by the periodic distance along
+    the axis, which is the distance along the normal; a tie goes to the first
+    face. So the cut between the two faces sits in the middle of the vacuum gap
+    and in the middle of the matter gap.
+
+    Everything else does not pass: a molecule or a wire in a box (vacuum
+    planes along two or three axes and no matter plane), a thin vacuum whose
+    shell spans it, a bulk crystal, two slabs in one cell, a slab with a
+    molecule above it whose shell is apart from the face's, or a closed cavity.
+    No host read and no branch on a value, so it runs inside ``jit``.
+    """
+    rho = jnp.asarray(rho)
+    shell = (rho > rho_hold) & (rho < 10.0 * rho_hold)
+    out = []
+    for axis in range(1, rho.ndim):
+        other = tuple(a for a in range(1, rho.ndim) if a != axis)
+        occupied = jnp.any(shell, axis=other)
+        vacuum = jnp.all(rho <= rho_hold, axis=other)
+        matter = jnp.all(rho >= 10.0 * rho_hold, axis=other)
+        n = occupied.shape[-1]
+        start = occupied & ~jnp.roll(occupied, 1, axis=-1)
+        # With two runs, ``(cumsum - 1) mod 2`` is 0 from the first start on and
+        # 1 from the second, and the planes before the first start are the tail
+        # of the second run (or the gap after it) wrapped round the cell.
+        run_one = jnp.mod(jnp.cumsum(start, axis=-1) - 1, 2) == 1
+        gap_zero, gap_one = ~occupied & ~run_one, ~occupied & run_one
+
+        def has(kind, gap):
+            return jnp.any(kind & gap, axis=-1)
+
+        two = (jnp.sum(start, axis=-1) == 2) & (
+            (has(vacuum, gap_zero) & ~has(matter, gap_zero)
+             & has(matter, gap_one) & ~has(vacuum, gap_one))
+            | (has(matter, gap_zero) & ~has(vacuum, gap_zero)
+               & has(vacuum, gap_one) & ~has(matter, gap_one)))
+        index = jnp.arange(n)
+        apart = jnp.abs(index[:, None] - index[None, :])
+        apart = jnp.minimum(apart, n - apart)
+
+        def nearest(face):
+            return jnp.min(jnp.where(face[..., None, :], apart, n), axis=-1)
+
+        second = nearest(occupied & run_one) < nearest(occupied & ~run_one)
+        out.append((two, second))
+    return out
 
 
 def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH):
@@ -464,17 +536,32 @@ def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH)
 
         w(n) = [1 + erf(ln(n / rho_hold) / width)] / 2,   v_out = w v + (1 - w) v_tail,
 
-    ``v_tail`` per channel the mean of ``v`` over ``rho_hold < n < 10 rho_hold``,
-    with ``n`` that channel's own ``2 n_sigma`` in the shell and in the weight
-    (audit 2026-11-20 #47): the channel potential is evaluated on the channel
-    density, so its clean tail is where that density is clean. At ``nspin = 1``
-    and on an unpolarized ``nspin = 2`` run ``2 n_sigma`` is the total, and the
-    two regimes hold the same potential. ``w = 0`` where the density is not
-    positive. ``w`` is 0.5 at ``rho_hold``, 0.73 at ``2 rho_hold`` and 0.998
-    at ``10 rho_hold``, so the blend acts below about ``10 rho_hold``, centred
-    on ``rho_hold``, not only below it. A channel with no point in its shell (a
-    bulk crystal whose lowest density is above ``10 rho_hold``) keeps ``v`` as
-    it is.
+    ``v_tail`` per channel the mean of ``v`` over the shell
+    ``rho_hold < n < 10 rho_hold``, with ``n`` that channel's own ``2 n_sigma``
+    in the shell and in the weight (audit 2026-11-20 #47): the channel
+    potential is evaluated on the channel density, so its clean tail is where
+    that density is clean. At ``nspin = 1`` and on an unpolarized ``nspin = 2``
+    run ``2 n_sigma`` is the total, and the two regimes hold the same
+    potential. ``w = 0`` where the density is not positive. ``w`` is 0.5 at
+    ``rho_hold``, 0.73 at ``2 rho_hold`` and 0.998 at ``10 rho_hold``, so the
+    blend acts below about ``10 rho_hold``, centred on ``rho_hold``, not only
+    below it. A channel with no point in its shell (a bulk crystal whose lowest
+    density is above ``10 rho_hold``) keeps ``v`` as it is.
+
+    **One mean per face of a slab** (audit 2026-11-20 #9 and #10, the user's
+    choice). When the channel's shell is the two faces of one slab
+    (:func:`hold_faces`), each face has its own mean over its own shell points,
+    and each point takes the mean of the face nearer to it along the normal. A
+    slab whose faces differ (a Janus layer, a slab passivated on one side) has
+    its two vacua held at two values, where one cell mean put both at the
+    average, and the held potential steps between them in the middle of the
+    vacuum, where ``w`` is zero. A symmetric slab gives the cell mean again, to
+    round-off: graphane's two face means differ by 1e-13 to 4e-13 Ry. Every
+    other shell keeps the one cell mean, through the same expression as before:
+    one connected piece (a molecule or a wire in a box, a thin vacuum the
+    shell spans, the interstitial of a bulk crystal) is exactly the user's
+    form, and several pieces that are not two faces of one slab share the mean,
+    which :func:`hold_pieces` counts after the SCF so that the run can say so.
     """
     v = jnp.asarray(v)
     rho = jnp.broadcast_to(jnp.asarray(rho), v.shape)
@@ -483,10 +570,73 @@ def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH)
     weight = jnp.where(positive, 0.5 * (1.0 + jax.scipy.special.erf(log_ratio / width)), 0.0)
     shell = (rho > rho_hold) & (rho < 10.0 * rho_hold)
     axes = tuple(range(1, v.ndim))
+    in_shell = jnp.where(shell, v, 0.0)
     count = jnp.sum(shell, axis=axes, keepdims=True)
-    v_tail = jnp.sum(jnp.where(shell, v, 0.0), axis=axes, keepdims=True) / jnp.maximum(count, 1)
+    v_tail = jnp.sum(in_shell, axis=axes, keepdims=True) / jnp.maximum(count, 1)
+    channel = (v.shape[0],) + (1,) * len(axes)
+    for axis, (two, second) in zip(axes, hold_faces(rho, rho_hold)):
+        other = tuple(a for a in axes if a != axis)
+        plane_sum = jnp.sum(in_shell, axis=other)
+        plane_count = jnp.sum(shell, axis=other)
+
+        def face_mean(face):
+            total = jnp.sum(jnp.where(face, plane_sum, 0.0), axis=-1, keepdims=True)
+            points = jnp.sum(jnp.where(face, plane_count, 0), axis=-1, keepdims=True)
+            return total / jnp.maximum(points, 1)
+
+        per_plane = jnp.where(second, face_mean(second), face_mean(~second))
+        along = [v.shape[0]] + [1] * len(axes)
+        along[axis] = v.shape[axis]
+        v_tail = jnp.where(two.reshape(channel), per_plane.reshape(along), v_tail)
     held = weight * v + (1.0 - weight) * v_tail
     return jnp.where(count > 0, held, v)
+
+
+def hold_pieces(rho, rho_hold=LMBJ_RHO_HOLD):
+    """Per channel, ``(pieces, values)``: the shell's connected pieces and the tail values the hold gives them.
+
+    On the host, once after an SCF, never inside ``jit``. ``pieces`` counts the
+    connected pieces of ``rho_hold < n < 10 rho_hold`` on the periodic grid
+    (neighbours share a face, and a piece that crosses the cell boundary is
+    one), and ``values`` is 2 where :func:`hold_faces` finds the two faces of
+    one slab, 1 for any other shell and 0 with no shell. Where ``pieces``
+    exceeds ``values``, separate pieces were held at one shared mean. One piece
+    is one value without asking :func:`hold_faces`, since a connected piece
+    fills one run of planes along every axis; so a bulk crystal and a molecule
+    pay only the labelling.
+    """
+    import numpy as np
+    from scipy import ndimage
+
+    rho = np.asarray(rho)
+    faces = None
+    out = []
+    for s in range(rho.shape[0]):
+        shell = (rho[s] > rho_hold) & (rho[s] < 10.0 * rho_hold)
+        labels, found = ndimage.label(shell)
+        parent = list(range(found + 1))
+
+        def root(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for axis in range(shell.ndim):
+            first = np.take(labels, 0, axis=axis)
+            last = np.take(labels, -1, axis=axis)
+            both = (first > 0) & (last > 0)
+            for a, b in set(zip(first[both].tolist(), last[both].tolist())):
+                parent[root(a)] = root(b)
+        pieces = len({root(i) for i in range(1, found + 1)})
+        if pieces < 2:
+            out.append((pieces, pieces))
+            continue
+        if faces is None:
+            faces = hold_faces(rho, rho_hold)
+        two = any(bool(np.asarray(flag)[s]) for flag, _ in faces)
+        out.append((pieces, 2 if two else 1))
+    return out
 
 
 def lmbj_vacuum_g(alpha: float, beta: float, exponent: float) -> float:

@@ -57,7 +57,7 @@ __all__ = ["Potential", "v_of_rho", "hartree", "exchange_correlation",
            "gradient_correction", "meta_exchange", "scf_accuracy", "scf_accuracy_terms", "scf_accuracy_split",
            "tau_accuracy", "rho_ddot_vector", "tau_ddot_vector", "ns_ddot_vector",
            "total_charge",
-           "with_core", "as_potential_components",
+           "with_core", "as_potential_components", "warn_about_the_vacuum_hold",
            "DEFAULT_FUNCTIONAL"]
 
 #: What a calculation uses when nothing names a functional. QE has no such
@@ -943,11 +943,59 @@ def meta_exchange(
         # floor would otherwise set the vacuum potential (P182, the vacuum
         # check). Each channel on its own density doubled, the density its
         # exchange is evaluated at (audit 2026-11-20 #47); at nspin = 1 that is
-        # the total, bit for bit.
+        # the total, bit for bit. The tail value is one mean per face when the
+        # shell is the two faces of one slab, and the cell mean otherwise
+        # (audit 2026-11-20 #9 and #10); the faces are found inside the jit,
+        # and warn_about_the_vacuum_hold says after the SCF where pieces shared
+        # a mean.
         from defuqumat.xc.mgga import hold_vacuum_potential
 
         v = hold_vacuum_potential(v, 2.0 * channels_r)
     return v, c
+
+
+def warn_about_the_vacuum_hold(density_r, rho_core=None) -> None:
+    """After a local mBJ SCF, warn where separate pieces of the shell shared one tail value.
+
+    Args:
+        density_r: the converged density, ``(nspin, ...)`` as :func:`meta_exchange`
+            takes it, without the core charge.
+        rho_core: the core charge, added as :func:`v_of_rho` adds it.
+
+    The density the hold sees is rebuilt on the host (each channel's
+    ``2 n_sigma``, core included) and handed to
+    :func:`defuqumat.xc.mgga.hold_pieces`. One read of the density per SCF,
+    after the loop, so no iteration waits for it.
+    """
+    import warnings
+
+    from defuqumat.xc.mgga import LMBJ_RHO_HOLD, hold_pieces
+
+    density = np.real(np.asarray(density_r))
+    nspin = density.shape[0]
+    if nspin > 2:
+        return
+    if rho_core is not None:
+        density = density + np.asarray(with_core(jnp.real(jnp.asarray(rho_core)), nspin))
+    doubled = density if nspin == 1 else 2.0 * density
+    for s, (pieces, values) in enumerate(hold_pieces(doubled)):
+        if pieces <= values:
+            continue
+        channel = "" if nspin == 1 else f" of the {('up', 'down')[s]} channel"
+        warnings.warn(
+            f"the local mBJ (input_dft = 'lmbj') held the vacuum{channel} at "
+            f"{values} tail value{'s' if values > 1 else ''}, but the shell "
+            f"{LMBJ_RHO_HOLD:g} < n < {10 * LMBJ_RHO_HOLD:g} has {pieces} separate "
+            "pieces. A mean per face is taken only for the two faces of one slab "
+            "(the shell in two runs of planes along one axis, one gap between them "
+            "all vacuum and the other all matter); here the pieces share one mean, "
+            "so a vacuum next to a piece whose tail differs from the others is held "
+            "at the shared value. Two slabs in one cell, a molecule above a slab, "
+            "a closed cavity and a slab whose surface is not spanned by two of the "
+            "cell vectors are such cells",
+            RuntimeWarning,
+            stacklevel=3,
+        )
 
 
 def _noncollinear_meta_exchange_grad_m(rho_r, gvectors, cell, functional,

@@ -186,6 +186,7 @@ from defuqumat.scf.potential import (
     tau_ddot_vector,
     ns_ddot_vector,
     v_of_rho,
+    warn_about_the_vacuum_hold,
 )
 from defuqumat.scf.residual_split import becsum_residual, residual_bins
 from defuqumat.xc.mgga import thomas_fermi_tau
@@ -10798,6 +10799,13 @@ def run_scf(
         warn_about_a_cut_shell(levels["cut_gap"], ethr,
                                occupied_counts(calculation), int(nbnd),
                                degeneracy_tol=degeneracy_tol)
+
+    if calculation.functional.is_local_meta:
+        # The faces of the vacuum hold are found inside the jit and nothing
+        # there can warn; one host read of the density here says whether
+        # separate pieces of the shell shared one tail value (audit 2026-11-20
+        # #9 and #10).
+        warn_about_the_vacuum_hold(rho, calculation.rho_core)
 
     if rotate_moments and calculation.is_hubbard and moment is not None:
         _warn_if_the_hubbard_moment_moved(
