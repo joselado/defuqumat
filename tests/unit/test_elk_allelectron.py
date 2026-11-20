@@ -270,6 +270,44 @@ def test_an_internal_translation_keeps_the_sublattices(tmp_path):
     assert np.all(np.sign(written) == np.sign(elk))
 
 
+def test_the_shared_expansion_is_the_per_atom_scatter_to_the_bit():
+    """One harmonic table and one sparse shell sum for all atoms (AUDIT-2026-11-20 #22).
+
+    The reference is the per-atom form it replaced: the harmonics recomputed
+    and one ``np.add.at`` per ``(l, m, component)``. The shell sum adds in the
+    order of ``G`` in both, so the arrays are equal, not close.
+    """
+    from scipy.special import spherical_jn
+
+    from defuqumat.io.elk_allelectron import (FOURPI, _bessel_table, _expansion_basis,
+                                              _muffin_tin_expansion)
+    from defuqumat.io.elk_density import real_spherical_harmonics
+
+    rng = np.random.default_rng(3)
+    n, a, lmax = 10, 10.2, 4
+    idx = np.indices((n, n, n)).reshape(3, -1).T
+    G = np.where(idx > n // 2, idx - n, idx) @ (2 * np.pi / a * np.eye(3))
+    c = rng.normal(size=(2, len(G))) + 1j * rng.normal(size=(2, len(G)))
+    r = np.geomspace(1e-6, 2.2, 60)
+    basis = _expansion_basis(G, lmax)
+    bessel = _bessel_table(basis[1], lmax, r)
+    for centre in rng.uniform(0, a, size=(3, 3)):
+        gn = np.linalg.norm(G, axis=1)
+        phase = np.exp(1j * G @ centre)[None, :] * c
+        rg = real_spherical_harmonics(lmax, np.where(gn[:, None] > 0, G, [0.0, 0.0, 1.0]))
+        shells, inverse = np.unique(np.round(gn, 10), return_inverse=True)
+        reference = np.zeros((2, (lmax + 1) ** 2, len(r)))
+        for l in range(lmax + 1):
+            jl = spherical_jn(l, np.outer(shells, r))
+            for lm in range(l * l, (l + 1) ** 2):
+                amplitude = np.zeros((2, len(shells)), dtype=complex)
+                for k in range(2):
+                    np.add.at(amplitude[k], inverse, phase[k] * rg[:, lm])
+                reference[:, lm] = (FOURPI * (1j ** l) * amplitude @ jl).real
+        np.testing.assert_array_equal(
+            _muffin_tin_expansion(c, G, centre, lmax, r, basis, bessel), reference)
+
+
 def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
     import dataclasses

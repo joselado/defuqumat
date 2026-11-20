@@ -213,26 +213,52 @@ def _grid_coefficients(field, at):
     return flat[..., keep], mill[keep], mill[keep] @ b
 
 
-def _muffin_tin_expansion(c, G, center, lmax, r):
-    """``f_lm(r)`` of ``sum_G c_G e^{iGr}`` about ``center``, Elk harmonics, real."""
-    from scipy.special import spherical_jn
+def _expansion_basis(G, lmax):
+    """``(rg, shells, indicator)``: what the expansion needs that no atom changes.
+
+    ``rg`` is ``(nG, lmmax)`` real harmonics of every ``G``, ``shells`` the
+    distinct ``|G|`` and ``indicator`` the sparse ``(nshell, nG)`` matrix of
+    ones that sums a ``G`` array into its shells (audit 2026-11-20 #22).
+    """
+    from scipy.sparse import csr_matrix
 
     from defuqumat.io.elk_density import real_spherical_harmonics
 
-    c = np.atleast_2d(c)
     gn = np.linalg.norm(G, axis=1)
-    phase = np.exp(1j * G @ center)[None, :] * c
     rg = real_spherical_harmonics(lmax, np.where(gn[:, None] > 0, G, [0.0, 0.0, 1.0]))
     shells, inverse = np.unique(np.round(gn, 10), return_inverse=True)
+    indicator = csr_matrix((np.ones(len(gn)), (inverse, np.arange(len(gn)))),
+                           shape=(len(shells), len(gn)))
+    return rg, shells, indicator
+
+
+def _bessel_table(shells, lmax, r):
+    """``[j_l(|G| r)]`` for ``l = 0..lmax``, ``(nshell, nr)`` each: one per species mesh."""
+    from scipy.special import spherical_jn
+
+    return [spherical_jn(l, np.outer(shells, r)) for l in range(lmax + 1)]
+
+
+def _muffin_tin_expansion(c, G, center, lmax, r, basis=None, bessel=None):
+    """``f_lm(r)`` of ``sum_G c_G e^{iGr}`` about ``center``, Elk harmonics, real.
+
+    ``basis`` (:func:`_expansion_basis`) and ``bessel`` (:func:`_bessel_table`)
+    are built once for all atoms when given. The shell sum is one sparse
+    product, which adds the terms of a shell in the order of ``G`` as the
+    ``np.add.at`` it replaced did, so the result is the same to the bit.
+    """
+    c = np.atleast_2d(c)
+    rg, shells, indicator = _expansion_basis(G, lmax) if basis is None else basis
+    jls = _bessel_table(shells, lmax, r) if bessel is None else bessel
+    phase = np.exp(1j * G @ center)[None, :] * c
+    # (ncomp, nshell, lmmax): the sum over each shell of c_G e^{iG tau} R_lm(G).
+    amplitude = np.stack([indicator @ (phase[k][:, None] * rg) for k in range(c.shape[0])])
     out = np.zeros((c.shape[0], (lmax + 1) ** 2, len(r)))
     for l in range(lmax + 1):
-        jl = spherical_jn(l, np.outer(shells, r))
         for m in range(-l, l + 1):
             lm = l * (l + 1) + m
-            amplitude = np.zeros((c.shape[0], len(shells)), dtype=complex)
-            for k in range(c.shape[0]):
-                np.add.at(amplitude[k], inverse, phase[k] * rg[:, lm])
-            out[:, lm] = (FOURPI * (1j ** l) * amplitude @ jl).real
+            out[:, lm] = (FOURPI * (1j ** l) * np.ascontiguousarray(amplitude[:, :, lm])
+                          @ jls[l]).real
     return out
 
 
@@ -399,11 +425,15 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
         if result.becsum[t] is not None:
             for k, a in enumerate(atoms):
                 becsum_of[a] = (t, np.asarray(result.becsum[t])[:, k])
+    basis = _expansion_basis(G, lmaxo)
+    bessel = {}
     for ias in range(natmtot):
         s = species_of[ias]
         nr, nri = base.nrmt[s], params.nrmti[s]
         r = np.asarray(base.rsp[s], dtype=float)[:nr]
-        f = _muffin_tin_expansion(c, G, centres[ias], lmaxo, r)
+        if s not in bessel:
+            bessel[s] = _bessel_table(basis[1], lmaxo, r)
+        f = _muffin_tin_expansion(c, G, centres[ias], lmaxo, r, basis, bessel[s])
         t, becsum = becsum_of[int(order[ias])]
         pseudo = calculation.pseudos[t]
         d = _onecentre(pseudo, calculation.paw.species[t], becsum)

@@ -11343,6 +11343,21 @@ Si2, Elk 11.0.2 meshes of the converged Perdew-Zunger run (397 radial points, `l
 19 loops at 4.2 s on the same core, so nothing here is worth making faster yet. The pair is the one
 call Elk and this code share; Elk has no counterpart to the density rebuilt from PAW.
 
+### The muffin-tin expansion, one harmonic table for all atoms (audit 2026-11-20 #22, this workstation, 2026-11-20)
+
+`_muffin_tin_expansion` rebuilt the real harmonics of every `G`, the shell table and `j_l(|G| r)` for
+every atom, and summed each shell with one `np.add.at` per `(l, m, component)`. The harmonics and the
+shells are now built once per call of `all_electron_state`, `j_l` once per species, and the shell sum
+is one sparse product per component. Measured on a synthetic cell (cubic, 20.4 bohr, every `G` of a
+48^3 box, `nG` = 110592, about the audit's 16-atom supercell at `ecutrho` 240 Ry), `lmax` 6, two
+components (a collinear magnet), 300 radial points, 4 atoms, one core (`taskset -c 0`,
+`OMP_NUM_THREADS=1`), median of 5 after one warm call, both arms in one process twice: **10.34 s and
+10.44 s before, 3.23 s and 3.23 s after**, 2.59 s against 0.81 s an atom. The arrays are equal to the
+bit (`np.array_equal`) on core 0 and on core 4, since the sparse product adds the terms of a shell in
+the order of `G` as `np.add.at` did, and the Si2 `STATE.OUT` is the same file byte for byte. On the Si2
+template itself the gain is small, `all_electron_state` 1.074 s against 1.026 s (median of 5, core 0),
+because there the group of 48 operations is most of the time (audit #23).
+
 ## The local mBJ against TB09 (CPU, this workstation, 2026-11-18, P182)
 
 No reference code here implements the local mBJ (QE has no TB09 proper; Elk computes one all-electron `c`; VASP has the local form and is not here), so the pair is against this code's own TB09, which the local form reduces to in a bulk crystal. Silicon `si2-tb09.in` (30 Ry, 6x6x6), one core (`taskset -c 0`, `OMP_NUM_THREADS=1`), each run repeated four times in one process and the first dropped, median of three:
