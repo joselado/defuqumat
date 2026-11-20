@@ -1768,20 +1768,27 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "without a core, but the pair has not been checked. Use a dataset "
             "without PP_NLCC, or nspin = 1"
         )
-    from defuqumat.system.kpoints import is_reduced
+    from defuqumat.system.kpoints import covers_a_whole_grid, is_reduced
 
     # ``use_symmetry`` alone misses a P1 crystal: its group is the identity, so
     # use_symmetry is False, while time reversal still halves its grid, and the
     # partner -k of a kept k contributes conj(drho_{-q}) rather than drho_q
     # (audit 2026-11-15, ``phonon`` F1). The k-set is what carries the answer.
-    if calculation.use_symmetry or is_reduced(system.kpoints):
+    # ``is_reduced`` reads the recorded flag and the weight spread, and an
+    # explicit list has no flag, so a wedge written out with equal weights (the
+    # time-reversal half of a shifted grid) passed; such a list must be a whole
+    # grid (audit 2026-11-20c #27, the class of 2026-11-20 #11).
+    kpoints = system.kpoints
+    if calculation.use_symmetry or is_reduced(kpoints) or (
+            kpoints.grid is None and not covers_a_whole_grid(kpoints, system.cell)):
         raise NotImplementedError(
             "a phonon at q != 0 needs the whole k-grid: the response has to be "
             "symmetrised over the small group of q -- the operations with "
             "S q = q + G -- which is not the crystal's group and is not "
             "written here. Run with nosym = .true. and noinv = .true. on an "
             "unshifted grid, which is the grid that is closed under the point "
-            "group (see si-epsilon-unshifted-nosym.in)"
+            "group (see si-epsilon-unshifted-nosym.in). An explicit K_POINTS "
+            "list must be a whole grid, every point at equal weight"
         )
     if getattr(calculation, "dispersion_sum", None) is not None:
         # dynmat0.f90 calls d2ionq_disp at the phonon's xq; the frozen Hessian

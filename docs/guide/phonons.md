@@ -408,7 +408,10 @@ which we compute in the page about stress with `get_elastic_constants()`.
     give an error, because the response would have to be averaged over the
     small group of $\mathbf q$, which is not the group of the crystal. We run
     them with `noinv` as well and on an unshifted mesh, which is the mesh that
-    is closed under the point group. They give an error for ultrasoft and PAW
+    is closed under the point group. An explicit `K_POINTS` list gives an error
+    unless it is the whole mesh, every point at the same weight. For example,
+    the half of a mesh that time reversal keeps, written out as a list, gives
+    an error. They give an error for ultrasoft and PAW
     datasets, for a GGA functional such as PBE, for spinors, spin spirals,
     DFT+U and `nosource`, and for a potential-only meta-GGA (`tb09`, `bj06`), as
     every response does. A norm-conserving dataset with a nonlinear core

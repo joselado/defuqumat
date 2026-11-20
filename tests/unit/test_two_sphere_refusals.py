@@ -22,7 +22,8 @@ from defuqumat.response.phononq import require_a_two_sphere_regime
 def _calculation(**changes):
     """A stand-in carrying exactly the flags the guard reads, every one off."""
     system = dict(nspin=1, noncolin=False, spiral_q=None, occupations="fixed",
-                  kpoints=SimpleNamespace(reduced=False, weights=np.full(8, 0.25)))
+                  kpoints=SimpleNamespace(reduced=False, weights=np.full(8, 0.25),
+                                          grid=(2, 2, 2)))
     flags = dict(is_ultrasoft=False, rho_core_g=None, use_symmetry=False,
                  functional=SimpleNamespace(is_meta=False, is_gradient=False),
                  source_free=False,
