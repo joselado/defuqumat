@@ -49,6 +49,7 @@ from defuqumat.workflows.stm import (
     _finish_spectrum,
     _plane,
     _refuse_a_window_under_an_axis,
+    _require_a_scan_range,
     _spectrum_energies,
     _tip_energy,
     _tip_width,
@@ -117,6 +118,8 @@ def run_ultracell_stm(
             tunnelling density -- 1/(bohr^3 Ry) at zero bias, electrons/bohr^3
             in a window.
         heights, nheights: the scan along the surface normal, in bohr.
+            ``heights`` is required in constant-current mode, as in
+            :func:`~defuqumat.workflows.stm.run_stm`.
         spin: image one spin channel -- a magnetic tip. A cartesian 3-vector or
             ``"up"``/``"down"``; ``None`` is the charge image. This is the one
             an ultracell run is usually for: a spin density wave lives in the
@@ -146,6 +149,8 @@ def run_ultracell_stm(
     """
     states = _states_of(result, "an STM image")
     _refuse_what_has_no_tip_energy(system, result)
+    if mode == "constant-current":
+        _require_a_scan_range(heights)     # before the density, not after it
     ultracell = states.ultracell
     cells = ultracell.cells
 

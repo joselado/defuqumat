@@ -850,10 +850,15 @@ so its size moves by a few per cent with the mesh and its sign does not.
     because such a run has no transverse magnetization, which is not the same as
     a zero one.
 
-    A constant-current scan longer than the period of the cell along the normal
-    gives an error, because there the tip meets the next copy of the surface. A
-    point where the tip never reaches the set-point comes back as `nan`, with a
-    warning that says how many points. At zero bias the image of an insulator is
+    A constant-current scan without `heights` gives an error. The scan has to
+    end in the vacuum, before the next copy of the slab, and the code does not
+    know where the vacuum is. Even half a period is too long for the graphite
+    cell above with the tip at 3.5 bohr, so there is no default. For a tip that
+    starts near the surface, the middle of the vacuum is a good upper end. A
+    scan as long as the period of the cell along the normal, or longer, also
+    gives an error, because there the tip is back on the copy of the plane it
+    started from. A point where the tip never reaches the set-point comes back
+    as `nan`, with a warning that says how many points. At zero bias the image of an insulator is
     zero, because the delta sits in the gap, and the code warns about it, so for
     an insulator you give a `bias`. All four calculations of this page work with
     `K_POINTS gamma`. They agree with an explicit $k = 0$ to 1e-7, which is what
