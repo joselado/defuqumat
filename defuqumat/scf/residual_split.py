@@ -199,7 +199,11 @@ def becsum_residual(becsum_in, becsum_out) -> tuple:
     channels alone, which is the one that can move while the charge sits still.
     At four components channel 0 is the charge and is the piece ``addusdens``
     already routed onto the grid. At ``nspin = 2`` the channels are ``(up,
-    down)``, so the moment is their difference (audit 2026-11-15, ``mixing`` F2).
+    down)``, so the moment is their difference (audit 2026-11-15, ``mixing`` F2),
+    and the total is taken in the same ``(up + down, up - down)`` basis, which is
+    ``sqrt(2)`` times the ``(up, down)`` norm (audit 2026-11-20 #15). So the
+    magnetic part never exceeds the total, and an ``nspin = 2`` run reads the
+    same pair as the four-component run of the same collinear state.
 
     The norm is a plain Euclidean one over the occupations, whose units are
     electrons rather than the density's, so **it is comparable with itself across
@@ -223,10 +227,18 @@ def becsum_residual(becsum_in, becsum_out) -> tuple:
         if before.ndim == 0 or before.size == 0:
             continue
         difference = after - before
-        total += float(jnp.sum(difference**2))
         if before.shape[0] == 2:
+            # Both halves in the (charge, moment) basis, so the magnetic part is
+            # a part of the total and the pair reads as at four components:
+            # |d_up + d_down|^2 + |d_up - d_down|^2 = 2 (|d_up|^2 + |d_down|^2).
+            # The total was the (up, down) norm, sqrt(2) below it, and a pure
+            # moment change read a magnetic part sqrt(2) times the whole
+            # (audit 2026-11-20 #15).
+            total += 2.0 * float(jnp.sum(difference**2))
             magnetic += float(jnp.sum((difference[0] - difference[1]) ** 2))
-        elif before.shape[0] > 2:
+            continue
+        total += float(jnp.sum(difference**2))
+        if before.shape[0] > 2:
             magnetic += float(jnp.sum(difference[1:] ** 2))
     return float(np.sqrt(total)), float(np.sqrt(magnetic))
 
