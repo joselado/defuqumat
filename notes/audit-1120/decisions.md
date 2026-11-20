@@ -129,3 +129,5 @@ the reason, and what would change it.
 - **Seen outside the note, for OPEN.md:** `run_ultracell_stm` passes `heights` (bohr along the
   normal) to `_refuse_an_augmented_plane` as crystal coordinates (`sampled += heights` in
   `workflows/ultracell.py`), so on an augmented dataset it checks the wrong tip positions.
+- **Round three #6, the siblings, landed** in group E as 1024b5c5 with four tests in
+  `tests/unit/test_optics_paw_meta.py`; the patch file was removed.

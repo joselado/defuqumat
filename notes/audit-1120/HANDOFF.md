@@ -19,7 +19,13 @@ what is left, how the fix agents were run, and what waits for the user.
 - `notes/audit-1120/session/` is untracked on purpose, because it holds local paths. It has the
   three briefs (`brief.md`, `brief2.md`, `brief3.md`) and `agent-reports.md`, the verbatim final
   report of every fix agent and every audit workflow of the session. The proposed record text of
-  round one lives only there (search it for "Proposed" and "scope.md").
+  round one lives only there (search it for "Proposed" and "scope.md"). Its `scratch/` folder
+  is a copy of the session scratchpad's scripts and notes (2 MB, no arrays): the scripts behind
+  the numbers measured outside a test, for example the hcp Al phonon (round two #12), the PAW
+  wedge against its nosym twin (round three #2), the finite difference of #20 and the timing
+  pairs of round two #8.
+- **The gate has not been run on this branch at any point.** Every fix ran its own fast files
+  one at a time. `tools/test-fast.sh` runs once at the end, before anything is merged.
 
 ## What is left
 
@@ -70,8 +76,10 @@ choices in `decisions.md`.
    - `notes/incompat/I28.md`: dE/dq, the spiral scan with gradients and relax_spiral_q carry the
      Hubbard energy.
    - `PERFORMANCE.md`: round two #8 (the balanced plane chunk, the pairs and the 13 inputs whose
-     card timings are now a few per cent too slow); round three #16 (the overlap metric pair);
-     the P181 pair is already there.
+     card timings are now a few per cent too slow); round two #9 near line 3386 (QE's Davidson
+     budget as it is: 120 steps outside an SCF, and inside one pw.x moves on once five or fewer
+     bands are unconverged); round three #16 (the overlap metric pair); the P181 pair is
+     already there.
    - `.claude/rules/reference-source-map.md` line 32 (not for `calculation = 'bands'`).
    - `defuqumat/calculator.py`: one sentence in the `Calculator.with_kpoints` docstring (a
      tetrahedron run refuses the whole grid on a run with symmetry, as pw.x does).
@@ -93,8 +101,11 @@ choices in `decisions.md`.
 
 ## Held patches (in this folder, not applied)
 
+Checked at 9750e507 with `git apply --check`: every patch applies clean except the superseded
+local-tail one, which needs `--3way`.
+
 - `round2-3-rotate-fit-vectors.patch`: turn the rho_ddot fit vectors under rotate_moments. Right
-  by construction, no saving shown, would move I78, I112, I113. Refreshed to apply on f3b7ba41.
+  by construction, no saving shown, would move I78, I112, I113.
 - `round2-9-scf-stragglers.patch`: pw.x's allowance of five unsettled bands inside an SCF.
 - `round2-11-kubler-cut-channels.patch`: the kubler GGA on the cut channels of the PAW sphere.
   Reaches several slow PAW spinor files.
@@ -113,14 +124,23 @@ choices in `decisions.md`.
   get_stress(terms=True) in memory mode (needs a jacfwd over the chunked walk).
 - Round two: the full external force (#5); the Thomas-Fermi tau seed at nspin_mag = 4 (#14,
   four SCFs on nickel decide it); #17 and #27; land #3, #9, #11 or #21 from the patches; #29
-  (vkb at one k-point: store at nk = 1, store under a byte budget, or keep).
-- Round three: the complete PAW wedge fix of #2; #29 (leave, refuse, or Newton in double, which
-  needs a GPU timing); a default for the constant-current STM range at the vacuum midpoint (#9,
-  about 2 h); the spiral structure factors with the charge kept or the satellites H -/+ q (#8,
-  about half a day); the Kramers-pair check of the Wannier centres in the Z2 (#4).
+  (vkb at one k-point: store at nk = 1, store under a byte budget, or keep); #28 (the xy pass by
+  rows, at most 1 to 2 per cent); #30 (the second becsum jvp, 2.2 per cent of a PAW Si phonon);
+  #31 (the magnon kernel built once, 12 and 2.7 per cent at three q); #4 (the fixed GGA axis
+  follows pw.x's compute_ux literally, so two moments of 0.01 count as parallel at any angle;
+  keep, or a rule that does not depend on the lengths).
+- Round three: the complete PAW wedge fix of #2; whether to keep #20 (PAW deformation
+  potentials move by up to 4.59e-3 of 1.13, toward a finite difference; no recorded number; a
+  revert of 48955549 would hold it); #28 (the Raman ort blocks on the host, 7.37 GB and 64 s on
+  the P25 yardstick); #29 (leave, refuse, or Newton in double, which needs a GPU timing); a
+  default for the constant-current STM range at the vacuum midpoint (#9, about 2 h); the spiral
+  structure factors with the charge kept or the satellites H -/+ q (#8, about half a day); the
+  Kramers-pair check of the Wannier centres in the Z2 (#4).
 
 ## Gate time added by the fixes
 
 Round one: spiral fast tests 28 s, #37 14 s, lmbj 8 s and 5.5 s, #22 7.8 s, stress 2.5 s. Round
-two E: about 24 s. Round three: A 33.4 s, B 9.2 s, C about 23 s, D about 21 s, E about 2 s. Each
+two E: about 24 s. Round two F: not given by its agent (the new files are
+`tests/unit/test_one_shot_solves_report.py` and `tests/unit/test_plane_chunk.py`, plus one test
+in `tests/unit/test_subspace_eigh_tangent.py`). Round three: A 33.4 s, B 9.2 s, C about 23 s, D about 21 s, E about 2 s. Each
 was measured as its own process, so the gate grows by less.
