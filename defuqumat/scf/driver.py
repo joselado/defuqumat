@@ -3189,7 +3189,9 @@ class Calculation:
         falling with ``conv_thr`` as the SCF's own error does down to the
         precision's. A constrained moment, an applied field and a Berry-phase
         field are refused by name: the constrained H atom landed 1.2e-4 Ry off
-        against 2.5e-5 for a double run at the same ``conv_thr``. Three things had to
+        against 2.5e-5 for a double run at the same ``conv_thr``. A saw-tooth
+        field (``tefield``, with or without ``dipfield``) is refused beside them,
+        because it was never measured (audit 2026-11-20b #34). Three things had to
         change: ``H|psi>`` of a spinor and of DFT+U came back complex128, and
         the Davidson work array refused it, until the spinor's kinetic energy
         and potential and the Hubbard projectors (:meth:`band_wfcU`) were cast
@@ -3230,6 +3232,10 @@ class Calculation:
             fields.append("an applied magnetic field")
         if getattr(self, "berry_field", None) is not None:
             fields.append("a Berry-phase electric field (lelfield)")
+        if getattr(self, "sawtooth", None) is not None:
+            # Not measured at all (audit 2026-11-20b #34): I119 has no number for
+            # it, and it sat unrefused beside the fields that were measured.
+            fields.append("a saw-tooth electric field (tefield)")
         if fields:
             # Measured on h-atom-noncolin.in at angle1 = 60 (the I119 review):
             # 'atomic' at lambda = 0.5 lands 1.2e-4 Ry off against 2.5e-5 for a
@@ -3238,7 +3244,8 @@ class Calculation:
                 f"band_precision = {self.band_precision.name!r} is not checked "
                 f"with {', '.join(fields)}: a constraint or a field measured "
                 "an order of magnitude further from its double state than the "
-                "SCF's own error. Run it with band_precision='double'"
+                "SCF's own error, and the saw-tooth was not measured. Run it "
+                "with band_precision='double'"
             )
         regimes = []
         if any(getattr(p, "is_ultrasoft", False) for p in self.pseudos):

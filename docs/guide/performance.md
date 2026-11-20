@@ -357,7 +357,9 @@ several cards are in
     norm-conserving calculation. DFT+U or a meta-GGA together with ultrasoft,
     PAW, spinors or a spiral gives an error. A constrained moment
     (`constrained_magnetization`), an applied magnetic field and a Berry-phase
-    field (`lelfield`) also give an error. The total energy of TB09 is not a
+    field (`lelfield`) also give an error. A saw-tooth field (`tefield`, with or
+    without `dipfield`) gives an error too, because we have not measured it in
+    single precision. The total energy of TB09 is not a
     physical quantity, in any precision. TB09 is used for its eigenvalues. In
     single precision they are $5.5\times10^{-5}$ Ry from the converged double
     ones, and a double run stopped at the same `conv_thr` is

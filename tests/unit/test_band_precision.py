@@ -179,10 +179,11 @@ def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
     from types import SimpleNamespace
 
     def stub(ultrasoft=False, noncolin=False, spiral=False, hubbard=None, meta=False,
-             constraint="none", field=None, berry=None):
+             constraint="none", field=None, berry=None, sawtooth=None):
         return SimpleNamespace(
             pseudos=(SimpleNamespace(is_ultrasoft=ultrasoft),), noncolin=noncolin,
             spiral=spiral, hubbard=hubbard, magnetic_field=field, berry_field=berry,
+            sawtooth=sawtooth,
             functional=SimpleNamespace(is_meta=meta, name="tb09"), band_precision=SINGLE,
             system=SimpleNamespace(ecutwfc=20.0, constrained_magnetization=constraint),
             SINGLE_ETHR_FACTOR=Calculation.SINGLE_ETHR_FACTOR,
@@ -202,7 +203,8 @@ def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
     for refused, name in ((stub(noncolin=True, constraint="atomic"), "'atomic'"),
                           (stub(noncolin=True, constraint="total"), "'total'"),
                           (stub(field=object()), "magnetic field"),
-                          (stub(berry=object()), "Berry-phase")):
+                          (stub(berry=object()), "Berry-phase"),
+                          (stub(sawtooth=object()), "saw-tooth")):
         with pytest.raises(NotImplementedError, match=name):
             guard(refused)
 
@@ -334,6 +336,25 @@ def test_a_constrained_spinor_is_refused_in_single_precision(pseudo_dir, tmp_pat
         "angle1(1) = 60.0, constrained_magnetization = 'atomic', lambda = 0.5"),))
     with pytest.raises(NotImplementedError, match="constrained_magnetization = 'atomic'"):
         Calculation(system, pseudos, band_precision="single")
+
+
+def test_a_sawtooth_field_is_refused_in_single_precision(pseudo_dir, tmp_path):
+    """``tefield`` has no number in single precision (audit 2026-11-20b #34).
+
+    I119 measured each regime it lifted and refused the constraint, the applied
+    field and the Berry-phase field, which landed an order of magnitude further
+    from their double state than the SCF's own error. The saw-tooth sat beside
+    them unrefused and unmeasured. The same cell runs in double, and without the
+    field in single.
+    """
+    path = CASES / "h2-box-tefield.in"
+    system, pseudos = _edited(pseudo_dir, tmp_path, path, ())
+    with pytest.raises(NotImplementedError, match="saw-tooth"):
+        Calculation(system, pseudos, band_precision="single")
+    Calculation(system, pseudos)
+    system, pseudos = _edited(pseudo_dir, tmp_path, path,
+                              (("tefield = .true.", "tefield = .false."),))
+    Calculation(system, pseudos, band_precision="single")
 
 
 def _continuation_stub(miss, precision):
