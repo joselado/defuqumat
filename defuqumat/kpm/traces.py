@@ -122,17 +122,30 @@ class KPMLocalDOS:
 
 
 def whole_grid_calculation(calculation):
-    """``calculation`` on the whole Monkhorst-Pack grid of its run, if its k-set is a wedge."""
-    from defuqumat.system.kpoints import KPoints, for_spin
+    """``calculation`` on the whole Monkhorst-Pack grid of its run, if its k-set is a wedge.
+
+    A set built by :meth:`~defuqumat.system.kpoints.KPoints.automatic` says
+    whether it was reduced and from which grid, and a reduced one is moved to
+    that grid. An explicit list says neither, so it passes only if it is a
+    whole grid itself (:func:`~defuqumat.system.kpoints.covers_a_whole_grid`),
+    and is refused otherwise: a wedge written out as a list, with unequal
+    weights or with equal ones, used to pass unchanged, and its weights summed
+    an axial or per-orbital trace to a number the zone sum is not (audit
+    2026-11-20 #11).
+    """
+    from defuqumat.system.kpoints import KPoints, covers_a_whole_grid, for_spin, is_reduced
 
     kpoints = calculation.system.kpoints
-    if not kpoints.reduced:
+    if not is_reduced(kpoints) and (kpoints.grid is not None or covers_a_whole_grid(
+            kpoints, calculation.system.cell)):
         return calculation
     if kpoints.grid is None:
         raise ValueError(
-            "a per-orbital or per-point trace on a symmetry-reduced k-set needs the "
-            "whole grid, and this k-set does not say which grid it came from: pass "
-            "the whole grid as kpoints")
+            "a per-orbital, per-point, velocity or spin trace needs the whole zone, and "
+            "this k-set is an explicit list that is not a whole grid (equal weights on "
+            "every point of an n1 x n2 x n3 mesh), so it may be a symmetry-reduced "
+            "wedge and does not say which grid it came from: pass the whole grid as "
+            "kpoints")
     whole = KPoints.automatic(kpoints.grid, kpoints.shift or (0, 0, 0),
                               calculation.system.cell)
     return calculation.at_kpoints(for_spin(whole, calculation.system.nspin))

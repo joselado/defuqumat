@@ -30,6 +30,7 @@ _GRID_EPS = 1.0e-5
 __all__ = ["KPoints", "monkhorst_pack", "irreducible_wedge", "grid_equivalence",
            "grid_stabilizer",
            "expand_to_subgroup", "expand_band_path", "for_spin", "is_reduced",
+           "covers_a_whole_grid",
            "HIGH_SYMMETRY_POINTS", "labelled_path", "resolve_kpoints"]
 
 #: Spin degeneracy factor applied to weights for an unpolarised calculation.
@@ -602,6 +603,45 @@ def is_reduced(kpoints: "KPoints") -> bool:
     if weights.size <= 1:
         return False
     return bool(np.ptp(weights) > 1.0e-8 * np.abs(weights).max())
+
+
+def covers_a_whole_grid(kpoints: "KPoints", cell: Cell) -> bool:
+    """Whether ``kpoints`` is a whole Monkhorst-Pack grid: equal weights on every point of one.
+
+    For a list with no grid recorded on it (:attr:`KPoints.grid` is ``None``),
+    which :attr:`KPoints.reduced` cannot speak for. :func:`is_reduced`'s weight
+    spread catches a hand-written wedge with unequal weights and misses one with
+    equal weights, which is what a group acting freely on a shifted grid leaves.
+    This is the positive test instead, in crystal coordinates folded into
+    ``[0, 1)``: each axis holds ``n_i`` values spaced by ``1/n_i``, every one of
+    the ``n_1 n_2 n_3`` combinations is present once, the set holds ``-k`` with
+    every ``k``, and the weights are equal. The ``-k`` test is what a
+    Monkhorst-Pack offset (none, or half a step) guarantees, and it is needed:
+    the four points time reversal keeps of the shifted 2x2x2 mesh of an fcc
+    cell are a 1x2x2 product grid at the offset 1/4, which no mesh has, and
+    pass every other test. A Monkhorst-Pack grid, shifted or not, passes, and
+    so does ``Gamma`` alone. A list that fails is treated as a part of the zone,
+    which is the safe direction: a consumer that needs the whole zone refuses
+    it (audit 2026-11-20 #11). Host-side, on the k-set's own numbers.
+    """
+    if is_reduced(kpoints):
+        return False
+    points = np.asarray(kpoints.crystal(cell), dtype=float).reshape(-1, 3)
+    if len(points) == 0:
+        return False
+    resolution = 1_000_000  # buckets per reciprocal vector: 1e-6 in crystal units
+    keys = np.rint((points - np.floor(points)) * resolution).astype(np.int64) % resolution
+    counts = []
+    for axis in range(3):
+        values = np.unique(keys[:, axis])
+        gaps = np.diff(np.append(values, values[0] + resolution))
+        if np.any(np.abs(gaps - resolution / len(values)) > 2):
+            return False
+        counts.append(len(values))
+    rows = {tuple(row) for row in keys.tolist()}
+    if not len(rows) == len(points) == int(np.prod(counts)):
+        return False
+    return all(tuple(row) in rows for row in ((-keys) % resolution).tolist())
 
 
 def for_spin(kpoints: "KPoints", nspin: int) -> "KPoints":
