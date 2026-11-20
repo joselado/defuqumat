@@ -890,9 +890,10 @@ so its size moves by a few per cent with the mesh and its sign does not.
     the substrate plane is. A symmetry-reduced k-mesh gives an error, because a
     mirror through the slab exchanges the tip and the substrate, and `grid`
     builds the full mesh. The substrate plane is always a lattice plane, set by
-    `exit_height`, while the tip plane may be tilted. A tip or a substrate plane
-    inside an augmentation sphere of an ultrasoft or PAW atom gives an error,
-    and in the vacuum these datasets need nothing extra. A magnetic tip or a
+    `exit_height`, while the tip plane may be tilted. A tip plane, a substrate
+    plane or a matching plane (`match_height`) inside an augmentation sphere of
+    an ultrasoft or PAW atom gives an error, and in the vacuum these datasets
+    need nothing extra. A magnetic tip or a
     magnetic substrate gives an error on a run with no magnetization, and a
     direction across the axis of a collinear run gives an error for both. A spin
     spiral gives an error, because the spectrum samples each state on one

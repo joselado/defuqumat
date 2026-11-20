@@ -684,6 +684,33 @@ def test_a_matching_plane_outside_the_gap_is_refused():
     assert tip is not None and tip.orbital.is_point
 
 
+def test_a_matching_plane_inside_an_augmentation_sphere_is_refused():
+    """The rule of the exit and tip planes, now on the matching plane (audit
+    2026-11-20 #12): folded there, a state is the pseudo-wavefunction.
+
+    An ultrasoft-like dataset reaching 2.4 bohr, the atom at 0.5 of a 13 bohr
+    cell and the tip at 0.7: a plane 1.3 bohr above the atom is refused, one
+    2.47 bohr above it is not, and without an augmented dataset (the
+    norm-conserving case of every recorded run) 1.3 bohr is kept.
+    """
+    cell = SQUARE
+    result = types.SimpleNamespace(potential=np.zeros((1, 4, 4, 26)))
+    plain = _fake_system([[0, 0, 0.5]], cell)
+    args = (result, 2, 0.3, np.array([[0.0, 0.0, 0.7]]), np.array([-0.5]), None,
+            None, None, False)
+    r = np.linspace(0.0, 5.0, 501)
+    ultrasoft = types.SimpleNamespace(
+        augmentation=object(), paw=None, r=r,
+        projectors=[types.SimpleNamespace(cutoff_index=240)])     # r = 2.4
+    with pytest.raises(NotImplementedError, match="the matching plane"):
+        _tip_assembly("pz", plain, *args, match_height=0.6, pseudos=(ultrasoft,))
+    tip, _ = _tip_assembly("pz", plain, *args, match_height=0.69,
+                           pseudos=(ultrasoft,))
+    assert tip.match["height"] == 0.69
+    tip, _ = _tip_assembly("pz", plain, *args, match_height=0.6, pseudos=())
+    assert tip.match is not None
+
+
 # --------------------------------------------------------------------------
 # the presets
 # --------------------------------------------------------------------------

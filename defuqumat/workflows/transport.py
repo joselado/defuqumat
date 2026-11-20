@@ -308,7 +308,7 @@ def run_vertical_transport(
     tip, tip_notes = _tip_assembly(
         tip_orbital, used, result, exit_axis, float(exit_height), points,
         grid_energies, tip_kappa, tip_frame, states, bool(tip_channels),
-        wedge=group is not None, match_height=match_height)
+        wedge=group is not None, match_height=match_height, pseudos=pseudos)
 
     # The store is handed over as it is -- a device array or a host one -- and
     # read one k-point at a time; converting it here would copy every k-point
@@ -379,7 +379,7 @@ def run_vertical_transport(
 
 def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
                   energies, tip_kappa, frame, states, channel_maps, *,
-                  wedge=False, match_height=None):
+                  wedge=False, match_height=None, pseudos=()):
     """``(TipAssembly or None, notes)``: the tip orbital, ready to assemble.
 
     ``None`` for the point tip, which then takes P66's branch unchanged. The
@@ -388,6 +388,10 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
     factor each; a complex channel on a symmetry-reduced k-set, since the
     completion drops the time-reversed operations that would carry it to its
     conjugate (``T_-k(C) = T_k(C^*)``); and no plateau to take ``kappa`` from.
+    A matching plane inside an augmentation sphere of ``pseudos`` is refused by
+    :func:`_refuse_an_augmented_plane`'s rule: the state folded there is the
+    pseudo-wavefunction, and the continuation above it leaves out the
+    projectors and ``Q_ij`` that still act there.
     """
     orbital = TipOrbital.resolve(spec)
     if orbital.is_point and match_height is None:
@@ -458,6 +462,8 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
         match = _matching_plane(system, exit_axis, exit_height, points,
                                 float(match_height), side, plateau, energies,
                                 kappa)
+        _refuse_an_augmented_plane(system, pseudos, exit_axis,
+                                   (float(match_height),), "the matching plane")
         # the planar average the WKB continuation decays through; without a
         # plateau (tip_kappa in a field) the vacuum is taken as flat
         if notes.get("kappa_source") == "plateau":
@@ -709,7 +715,7 @@ def run_momentum_transport(
     tip, tip_notes = _tip_assembly(
         tip_orbital, used, result, exit_axis, float(exit_height), probe,
         grid_energies, tip_kappa, tip_frame, states, False,
-        match_height=match_height)
+        match_height=match_height, pseudos=pseudos)
 
     columns, extras = _assemble_momentum(
         calculation, wavefunctions, eigenvalues,
