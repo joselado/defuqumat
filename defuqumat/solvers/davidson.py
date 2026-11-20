@@ -243,10 +243,23 @@ def tangent_width(ethr):
       scalar's ``max(5 ethr, 1e-5)``: five times smaller for ``ethr`` at or
       above 1e-5, between one and five times for ``ethr`` from 2e-6 to 1e-5,
       and equal below. ``tangent_width(jnp.full(4, 1e-4))`` is 1e-4 and
-      ``tangent_width(1e-4)`` is 5e-4. The floor alone was added (audit
-      2026-11-15, ``hamiltonian`` F1), since the bare 1e-13 turned the bound
-      off; that record says no differentiated caller passes a vector, so no
-      derivative depends on the difference (audit 2026-11-20 #30).
+      ``tangent_width(1e-4)`` is 5e-4.
+
+    **Every production solve takes the vector branch.**
+    :func:`davidson_eigensolver_all` broadcasts ``ethr`` to ``(nk, nbnd)`` and
+    :func:`_every_k` hands each k-point its row, so a scalar from the caller
+    arrives here as a row of the bare ``ethr``, and the width is
+    ``max(ethr, 1e-5)``. That is the case of the Newton residual
+    (``scf/residual.py``), which passes a scalar and is differentiated under
+    ``jvp = 'autodiff'``. The scalar branch is reached only by a direct call to
+    :func:`davidson_eigensolver`, which no module makes. The two widths differ
+    only for ``ethr`` above 2e-6, so at the Newton default (``ethr`` 1e-11 at
+    ``conv_thr`` 1e-8) both are 1e-5 (audit 2026-11-20b #20). The floor on the
+    vector was added on 2026-11-15 (audit ``hamiltonian`` F1, ``d719e1aa``),
+    since the bare 1e-13 turned the bound off. Its record said that no
+    differentiated caller passes a vector and so no derivative moved; that is
+    false, since before it the Newton autodiff tangent was regularised at the
+    bare ``ethr`` (1e-11 at ``conv_thr`` 1e-8) and after it at 1e-5.
 
     Traced, so it rides ``ethr``'s slot.
     """
