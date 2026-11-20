@@ -9339,11 +9339,12 @@ def run_scf(
 
     # ``potinit.f90``'s Thomas-Fermi guess. The first iteration has no states to
     # build ``tau`` from and the meta-GGA potential cannot be evaluated without
-    # one; from the second iteration on it comes from the states. It is **not
-    # mixed** -- ``mix_rho.f90`` does not touch ``kin_r`` -- so what the
-    # potential sees at iteration ``i`` is the previous iteration's output
-    # ``tau`` against the *mixed* density, which is QE's pairing and is the
-    # reason a meta-GGA SCF converges differently from a GGA one.
+    # one. From the second iteration on ``tau`` comes from the states and is
+    # **mixed with the density**, as ``mix_type``'s ``kin_g`` is in ``pw.x``
+    # (:func:`_mix`, ``scf_mod.f90:320-326``), so the guess is the input
+    # ``tau`` of the first mix, and the potential at iteration ``i`` sees the
+    # mixed ``tau`` beside the mixed density. Until 2026-09-20 the output
+    # ``tau`` replaced the input instead, on a reading of ``mix_rho.f90`` alone.
     tau_state = None
     if calculation.functional.is_meta:
         # In order of how much is known about ``tau``: a residual solver has

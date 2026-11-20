@@ -708,9 +708,11 @@ def thomas_fermi_tau(rho, nspin: int = 1):
     density (Eq. 2.9 of `Phys. Rev. A 20, 397`).
 
     An SCF under a meta-GGA needs a ``tau`` before it has any wavefunctions to
-    build one from, and this is the guess QE uses for that first iteration. It
-    is not used again: from the second iteration on, ``tau`` comes from the
-    states, and it is *not* mixed -- ``mix_rho.f90`` does not touch ``kin_r``.
+    build one from, and this is the guess QE uses for that first iteration.
+    From the second iteration on, ``tau`` comes from the states and is mixed
+    with the density, as ``mix_type``'s ``kin_g`` is in ``pw.x``
+    (``scf_mod.f90:320-326``), so this guess is also the input ``tau`` of the
+    first mix and stays in the mixer's history until it rolls out.
     """
     factor = (3.0 / 5.0) * (3.0 * jnp.pi**2) ** (2.0 / 3.0)
     rho = jnp.asarray(rho)
