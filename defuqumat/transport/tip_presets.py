@@ -41,8 +41,9 @@ of the oxygen (Gross et al., PRL 107, 086101 (2011); the probe-particle model of
 Krejci et al., PRB 95, 045407 (2017), which models a CO tip as px and py), ``"Pt"``
 and ``"Cu"`` the s orbital, ``"W"`` the ``dz2`` orbital (Chen's argument
 for atomic resolution with tungsten), and ``"Pb"`` the 6p shell -- in the metal
-the Fermi level lies in the 6p band, 6s being about 10 eV below (Bi, the
-neighbour: 6s at -1.064 Ry, 6p at -0.336 Ry). A mixed tip (W with its s and
+the Fermi level lies in the 6p band, 6s being about 8.5 eV below (the shipped
+``Pb.pbe-dn-rrkjus_psl.1.0.0.UPF``: 6s at -0.8849 Ry, 6p at -0.2571 Ry, 0.6279
+Ry apart). A mixed tip (W with its s and
 ``dz2``, CO with its sigma part) needs the share of each orbital at ``E_F`` on
 the apex, which is a PDOS of a tip model and is not here; :func:`from_upf` builds
 one from shares you give.
