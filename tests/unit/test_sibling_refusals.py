@@ -769,19 +769,21 @@ def test_a_fixed_tensor_moment_is_refused_by_the_force_and_the_stress(pseudo_dir
     import jax.numpy as jnp
 
     from defuqumat.forces import compute_forces
-    from defuqumat.forces.energy import FrozenState, reject_tensor_moment_constraint
+    from defuqumat.forces.energy import FrozenState
     from defuqumat.stress.energy import require_a_differentiable_cell
 
     constrained = _bn_spinor_dft_u(pseudo_dir)
     assert constrained.hubbard.constraints is not None and constrained.noncolin
+    with pytest.raises(NotImplementedError, match="TENSOR_MOMENTS") as raised:
+        require_a_differentiable_cell(constrained)
+    assert "the stress" in str(raised.value)
     empty = FrozenState(jnp.zeros((1, 1, 1, 1)), jnp.zeros((1, 1, 1)), jnp.zeros((1, 1, 1)))
     for method in ("autodiff", "analytic"):
         with pytest.raises(NotImplementedError, match="TENSOR_MOMENTS") as raised:
             compute_forces(constrained, empty, method=method)
         assert "the forces" in str(raised.value)
-    with pytest.raises(NotImplementedError, match="TENSOR_MOMENTS") as raised:
-        require_a_differentiable_cell(constrained)
-    assert "the stress" in str(raised.value)
+
+    from defuqumat.forces.energy import reject_tensor_moment_constraint
 
     free = copy.copy(constrained)
     free.hubbard = dataclasses.replace(constrained.hubbard, constraints=None)
