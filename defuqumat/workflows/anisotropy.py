@@ -528,6 +528,11 @@ def run_force_theorem(
     answer is a difference of band-energy sums in the fifth decimal of an eV,
     and QE's own example sets ``diago_thr_init = 1.d-14`` for the same reason.
 
+    ``projected`` adds ``projwfc.x``'s decomposition by site, orbital and spin
+    (:func:`_project_band_energy`). It needs the whole k-grid at every
+    direction, the system's own included: a wedge completes the band energy
+    and not the labels the magnetic group permutes (audit 2026-11-20c #26).
+
     ``soc_scale`` is Elk's ``socscf`` (:meth:`~defuqumat.system.builder.System.
     with_soc_scale`), anything in ``[0, 1]`` on a norm-conserving or ultrasoft
     dataset and **0 or 1** on a fully-relativistic PAW one (I114): it switches the spin-orbit part
@@ -597,6 +602,8 @@ def _force_theorem(system, pseudos, density, direction, nbnd, conv_thr, k_batch,
                 "and not a sum resolved by site and orbital, whose labels the "
                 "group permutes"
             )
+    if projected and not turned:
+        _require_a_whole_zone_to_project(system)
 
     direction = np.asarray(direction, dtype=float)
     direction = tuple(float(x) for x in direction / np.sqrt(np.sum(direction**2)))
@@ -848,8 +855,9 @@ def _project_band_energy(calculation, system, eigenvalues, wg, wavefunctions, ef
         transform = lowdin_transform(overlap)
         projectors = _apply_transform(transform, jnp.transpose(sphi, (1, 0)))
         proj0 = jnp.einsum("gi,bg->ib", jnp.conj(projectors), upload(psi[ik]))
-        # ``lsym`` is refused with ``lforcet`` (``projwfc.f90:152``) and the run
-        # is ``nosym`` anyway, so there is no ``sym_proj_k`` average here.
+        # ``lsym`` is refused with ``lforcet`` (``projwfc.f90:152``), so there
+        # is no ``sym_proj_k`` average here, and the k-set is the whole zone:
+        # :func:`_force_theorem` refuses a wedge before the solve.
         total += np.asarray(jnp.abs(proj0) ** 2 @ jnp.asarray(weight[ik]))
 
     count = len(channels)
@@ -1126,6 +1134,36 @@ def _require_a_whole_grid_for_a_torque(system: System, what: str) -> None:
         "leave dH/dtheta alone, so it needs nosym = .true. (the whole grid), or a "
         "run from Calculator.with_turning_moments(), whose identity-and-inversion "
         "wedge is complete for an axial vector")
+
+
+def _require_a_whole_zone_to_project(system: System) -> None:
+    """Refuse the projected decomposition on a k-set that is less than the zone.
+
+    :func:`_project_band_energy` sums ``w_k (eps - ef_0) |<phi|S|psi>|^2`` per
+    site, orbital and spin label with the k-set's own weights, and nothing
+    symmetrises it. On a wedge of the moment's magnetic group that completes
+    the total, a scalar, and not the labels the group permutes: for a moment
+    along ``z`` in tetragonal Co, ``C4z`` maps ``d_xz`` onto ``d_yz``, and the
+    wedge keeps ``(1/3, 0, 0)`` without its image. The refusal used to fire
+    only off the system's own axis (audit 2026-11-20c #26). It is wide on
+    purpose: an inversion can swap two magnetic atoms, so even the
+    identity-and-inversion wedge that a torque accepts does not keep
+    ``by_atom``. The k-set test is the one the Kramers average of ``ns`` uses:
+    the recorded flag or the weight spread, or an explicit list that is not a
+    whole grid.
+    """
+    from defuqumat.system.kpoints import covers_a_whole_grid, is_reduced
+
+    kpoints = system.kpoints
+    if is_reduced(kpoints) or (
+            kpoints.grid is None and not covers_a_whole_grid(kpoints, system.cell)):
+        raise ValueError(
+            "a projected force-theorem decomposition needs the whole k-grid "
+            "(nosym = .true. with K_POINTS automatic): this k-set is a wedge, "
+            "which completes the band energy (a scalar) and not a sum resolved "
+            "by site, orbital and spin, whose labels the magnetic group "
+            "permutes. The unprojected band energy runs on the wedge"
+        )
 
 
 def _require_nosym_to_turn(system: System, own) -> None:

@@ -143,8 +143,10 @@ on the torque, in Ry per radian.
     has its own first-order term, on the page about spin spirals. The first run
     must be spin-polarized, and the second needs `noncolin` and `lspinorb`.
     `get_anisotropy` runs without `nosym`: each direction is solved on the wedge
-    of its own magnetic group. The projected decomposition off the input's axis
-    still needs `nosym`. The torques (`get_torque`, `get_orientation_torque`,
+    of its own magnetic group. The projected decomposition (`projected=True`)
+    needs the whole k-grid, so it needs `nosym` at every direction, the input's
+    own axis included. The reason is that the magnetic group permutes the site,
+    orbital and spin labels, and a wedge keeps only the sum over them. The torques (`get_torque`, `get_orientation_torque`,
     `get_relaxed_orientation`) need `nosym` at every orientation, the input's
     own included, because a torque is a derivative of a sum over k in the
     direction of the moment, and a wedge of the magnetic group does not keep it.
