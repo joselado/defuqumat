@@ -475,7 +475,10 @@ diagonalize.
 
     A noncollinear run is symmetrized, with the spin rotated together with the
     orbitals. A spin-orbit run (`lspinorb`) is symmetrized too when it is not
-    magnetic. A magnetic spin-orbit run with symmetry gives an error. For it you
+    magnetic. This holds also for a crystal with no symmetry but the identity,
+    where time reversal halves the k-mesh. Then each $m_j$ column is averaged
+    with its $-m_j$ partner, as `projwfc.x` does. A magnetic spin-orbit run
+    with symmetry gives an error. For it you
     run with `nosym = .true.` and the full k-mesh, which is the same physics, or
     pass `symmetrize=False`.
 

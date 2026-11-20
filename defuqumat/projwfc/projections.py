@@ -58,6 +58,7 @@ from defuqumat.paw.symmetry import harmonic_rotations
 from defuqumat.projwfc.channels import AtomicChannel, projection_channels
 from defuqumat.scf.streaming import is_host_store
 from defuqumat.scf.whole_sphere import unfold_gamma_states
+from defuqumat.system.kpoints import covers_a_whole_grid, is_reduced
 from defuqumat.system.symmetry import atom_mapping, spin_rotations
 
 #: How much of the atomic projector set memory mode builds at once, bytes: a
@@ -139,12 +140,18 @@ class ProjectionSymmetry(eqx.Module):
 
 def build_projection_symmetry(
     channels: tuple[AtomicChannel, ...], cell, structure, symmetries,
-    domag: bool = False,
+    domag: bool = False, kramers: bool = False,
 ) -> ProjectionSymmetry | None:
     """The tables :class:`ProjectionSymmetry` contracts through.
 
     ``None`` when the group is trivial, in which case the symmetrisation is the
-    identity and is skipped rather than multiplied out.
+    identity and is skipped rather than multiplied out -- **unless**
+    ``kramers`` asks for the Kramers average of a nonmagnetic spin-orbit run
+    on a k-set halved by time reversal. ``sym_proj_so`` makes that average
+    under ``lsym`` alone, for the identity as for any group, and on a P1
+    crystal time reversal is what halved the grid, so the ``-k`` states it
+    left out are the Kramers partners of the kept ones (audit 2026-11-20c
+    #22). The tables are then the identity's, with the partner table.
 
     **The spinor branch is the same contraction on a longer index.** A
     noncollinear column without spin-orbit coupling is ``|l m> x |sigma>``, and
@@ -203,11 +210,18 @@ def build_projection_symmetry(
     refused by :func:`atomic_projections` before this is reached, because no
     wedge against a closed grid has been measured for it.
     """
-    if symmetries is None or symmetries.nsym <= 1 or not channels:
+    relativistic = any(channel.j is not None for channel in channels)
+    trivial = symmetries is None or symmetries.nsym <= 1
+    if not channels or (trivial and not (kramers and relativistic and not domag)):
         return None
+    if symmetries is None:
+        # ``setup.f90``'s ``nsym = 1``: the identity alone.
+        from defuqumat.system.symmetry import Symmetries
+
+        symmetries = Symmetries(rotations=(((1, 0, 0), (0, 1, 0), (0, 0, 1)),),
+                                translations=((0.0, 0.0, 0.0),))
 
     spinor = any(channel.spinor for channel in channels)
-    relativistic = any(channel.j is not None for channel in channels)
     if relativistic and not all(channel.j is not None for channel in channels):
         raise ValueError("a projection mixes j-resolved and other columns")
     lmax = max(channel.l for channel in channels)
@@ -397,6 +411,15 @@ def atomic_projections(
     found, in a second place; the failure is silent both times, because an
     average over the wrong group is still a smooth, normalised, plausible
     projection.
+
+    **The one average the switch does not remove** is the Kramers average of a
+    nonmagnetic spin-orbit run on a k-set halved by time reversal, which
+    ``sym_proj_so`` makes for the identity as for any group. Time reversal is a
+    symmetry of every nonmagnetic run, ``nosym`` or not, and it is what halved
+    the grid of a P1 crystal. Measured on three iodine atoms in a P1 cell at
+    3x3x3 (14 of 27 points): the wedge's ``m_j`` Loewdin charges differed from
+    their ``-m_j`` partners by 1.6e-2 and from the whole grid by 7.9e-3; with
+    the average, by 4.1e-9 from the whole grid (audit 2026-11-20c #22).
     """
     if kind not in PROJECTION_KINDS:
         raise ValueError(
@@ -461,11 +484,31 @@ def atomic_projections(
     def build(calc):
         return atomic_orbitals(calc, kind)
 
+    # The Kramers average of a nonmagnetic spin-orbit run whose group is not
+    # used -- the identity alone, or ``nosym`` -- on a k-set time reversal
+    # halved: ``sym_proj_so`` makes it under ``lsym`` for any group, and the
+    # ``-k`` states the wedge left out are the partners of the kept ones
+    # (audit 2026-11-20c #22). The k-set test is the driver's for the Kramers
+    # average of ``ns`` (audit 2026-11-20 #14, 2026-11-20b #10): the
+    # recorded flag, or an explicit list that is not a whole grid. Not under
+    # ``noinv``, where time reversal reduces nothing, and not on a band path,
+    # whose projections are read point by point. With the group in use this
+    # is already in the group average (``partner``).
+    kset = system.kpoints
+    kramers = bool(
+        symmetrize and lspinorb and not domag and not calculation.use_symmetry
+        and not system.noinv and kset.path_length is None
+        and (is_reduced(kset) or (
+            kset.grid is None and not covers_a_whole_grid(kset, system.cell)))
+    )
     symmetry = (
         build_projection_symmetry(
             channels, system.cell, system.structure, calculation.symmetries,
             domag=domag,
-        ) if symmetrize and calculation.use_symmetry else None
+        ) if symmetrize and calculation.use_symmetry
+        else build_projection_symmetry(
+            channels, system.cell, system.structure, None, kramers=True,
+        ) if kramers else None
     )
 
     def one_kpoint(state):
