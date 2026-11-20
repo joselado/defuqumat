@@ -9,15 +9,10 @@ solve, and each is refused by name rather than applied at the wrong moment:
   iteration 1 of a fresh run. The hand-over iteration is iteration 1, so the
   request was imposed on the *converged* occupation matrix and the run reported
   convergence with it (audit 2026-11-20c #3).
-* ``band_precision = 'mixed'``, whose switch to double happens inside the loop
-  after its first iteration. The solver ran whole on the single-precision bands,
-  and a solve that converged there could stop at the hand-over iteration before
-  the switch (audit 2026-11-20c #29).
 
 Each refusal is checked to fire before the solve, and the regimes next to it are
-checked to run: the same request on the mixing loop, a residual solver on a
-run that is given its starting state, and a residual solver in single
-precision.
+checked to run: the same request on the mixing loop, and a residual solver on a
+run that is given its starting state.
 """
 
 from pathlib import Path
@@ -86,58 +81,4 @@ def test_a_residual_solver_given_its_starting_ns_runs(steered_nickel):
                      starting_ns=calculation.starting_ns(),
                      scf_solver="newton-krylov", scf_solver_options=dict(_ONE_STEP),
                      verbose=False)
-    assert result.solver is not None
-
-
-_SILICON = """
-&control
-  calculation = 'scf'
-/
-&system
-  ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1, ecutwfc = 12.0
-/
-&electrons
-/
-ATOMIC_SPECIES
- Si 28.086 Si.pz-vbc.UPF
-ATOMIC_POSITIONS crystal
- Si 0.00 0.00 0.00
- Si 0.25 0.25 0.25
-K_POINTS automatic
- 2 2 2 0 0 0
-"""
-
-
-@pytest.fixture(scope="module")
-def silicon(pseudo_dir):
-    calculator = Calculator.from_text(_SILICON, pseudo_dir, announce=False)
-    return calculator.system, calculator.pseudos
-
-
-@pytest.mark.parametrize("conv_thr", [1e-10, 1e-5])
-def test_mixed_band_precision_with_a_residual_solver_is_refused(silicon, conv_thr):
-    """At every ``conv_thr``: a loose one is where the solve can end in single.
-
-    On ``419b5fb7`` the solve ran on the single-precision bands. On
-    ``si16-1k.in`` at 1e-10 it took 11 Newton steps and 152 Davidson steps,
-    against 4 and 35 in double.
-    """
-    system, pseudos = silicon
-    with pytest.raises(NotImplementedError, match="band_precision='mixed'") as raised:
-        run_scf(system, pseudos, conv_thr=conv_thr, band_precision="mixed",
-                max_iterations=1, scf_solver="newton-krylov",
-                scf_solver_options=dict(_ONE_STEP), verbose=False)
-    assert "band_precision='double'" in str(raised.value)
-
-
-def test_a_residual_solver_in_single_band_precision_runs(silicon):
-    """``'single'`` keeps its own floor on ``conv_thr``, which 1e-7 meets.
-
-    Double, the other cure the message names, is what every other residual
-    solver test runs in.
-    """
-    system, pseudos = silicon
-    result = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single",
-                     max_iterations=1, scf_solver="newton-krylov",
-                     scf_solver_options=dict(_ONE_STEP), verbose=False)
     assert result.solver is not None

@@ -386,15 +386,6 @@ several cards are in
     in double precision. A calculation moved to new positions, a new cell or a
     new spiral wavevector stays in single precision.
 
-    `band_precision="mixed"` gives an error with `scf_solver='newton-krylov'`.
-    The change to double precision happens inside the mixing loop, after its
-    first iteration, so the Newton solver would run entirely in single
-    precision. On `si16-1k.in` at `conv_thr` $=10^{-10}$ it then took 11 Newton
-    steps, where double precision takes 4. A solve that converges in single
-    precision could also stop before the change. With the Newton solver you use
-    `band_precision="double"`, or `"single"` at a `conv_thr` of at least
-    $10^{-7}$ Ry and then a double-precision run with `starting_from`.
-
     The code gives a `RuntimeWarning`, once per run, when the eigensolver uses
     its whole budget of 100 steps and leaves bands not converged. The steps of
     each iteration are in `scf.history[i]["davidson_iterations"]`.

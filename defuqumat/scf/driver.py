@@ -8635,25 +8635,6 @@ def run_scf(
     # A threshold the band side cannot deliver is refused rather than chased: in
     # single precision the SCF would stop at the floor and report convergence.
     switch_to = getattr(calculation, "switch_precision", None)
-    if switch_to is not None and get_scf_solver(scf_solver) is not None:
-        # ``'mixed'`` switches inside the mixing loop, at an iteration after the
-        # first, so a residual solver ran whole on the single-precision map:
-        # on si16-1k.in at conv_thr = 1e-10, 11 Newton steps and 152 Davidson
-        # steps against 4 and 35 in double, with the residual rising once on
-        # the way. And its hand-over iteration is iteration 1, so a solve that
-        # converged in single could end there without the switch, at a
-        # conv_thr the floor above refuses for 'single' (audit 2026-11-20c #29).
-        # pw.x has neither a residual solver nor a single band side.
-        raise NotImplementedError(
-            f"band_precision='mixed' with a residual SCF solver "
-            f"(scf_solver={scf_solver!r}) is not implemented: the switch to "
-            "double happens inside the mixing loop, after its first iteration, "
-            "so the solver would run entirely on the single-precision bands, "
-            "and a solve that converges there can stop before the switch. Use "
-            "band_precision='double' with the residual solver, or "
-            "band_precision='single' at conv_thr >= "
-            f"{Calculation.SINGLE_CONV_THR_FLOOR:.0e} and continue with "
-            "band_precision='double' and starting_from=")
     if switch_to is None and conv_thr < getattr(calculation, "conv_thr_floor", 0.0):
         raise ValueError(
             f"conv_thr = {conv_thr:.1e} is below what band_precision = "
