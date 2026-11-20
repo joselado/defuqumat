@@ -15,12 +15,20 @@ each for ``(gamma_only, ngm_g, nspin)``, the three reciprocal vectors
 ``bg * tpiba`` in 1/bohr, the Miller indices ``(3, ngm_g)``, and then one
 ``complex128[ngm_g]`` record per component. ``charge-density.hdf5`` (a QE built
 with HDF5) carries the same arrays as attributes and datasets; it is read, never
-written. The coefficients are those of ``rho(r) = sum_G rho(G) exp(iGr)`` in
+written. **So a written folder restarts only a ``pw.x`` built without HDF5**:
+with ``__HDF5`` defined, ``potinit`` checks only for ``charge-density.hdf5``
+(``potinit.f90:80-84``), and without it prints "Cannot read rho : file not
+found" and starts from a superposition of atoms (``:144-153``), with no error
+(audit 2026-11-20 #31).
+
+The coefficients are those of ``rho(r) = sum_G rho(G) exp(iGr)`` in
 e/bohr^3, so ``rho(G = 0) * omega`` is the electron count. ``read_rhog``
 scatters the coefficients in the order they are stored and reads the Miller
 indices only when the ``gamma_only`` flags differ, so a written file lists
 them in ``pw.x``'s order, and ``write_rhog`` here reproduces ``pw.x``'s own
-files byte for byte.
+files byte for byte. That order is the global one, which a ``pw.x`` run with
+``memory = 'small'`` on more than one FFT rank does not use (see
+:mod:`defuqumat.io.qe_gvectors`).
 
 **The spin layout is not defuqumat's in one case.** Since QE 6.4 ``rho%of_g``
 is ``(n, m_z)`` for ``nspin = 2`` and ``(n, m_x, m_y, m_z)`` for ``nspin = 4``,
@@ -577,7 +585,10 @@ def write_rhog(path, b, miller, rho_g, gamma_only: bool) -> Path:
         raise NotImplementedError(
             "writing charge-density.hdf5 is not implemented: the pw.x this was "
             "validated against has no HDF5, so a file in that form could not "
-            "be checked; write the .dat form, which every pw.x reads"
+            "be checked; write the .dat form, and restart it with a pw.x built "
+            "without HDF5 -- a pw.x built with HDF5 looks only for "
+            "charge-density.hdf5, prints 'Cannot read rho : file not found' and "
+            "starts from atomic charges"
         )
     miller = np.asarray(miller, dtype=np.int32)
     rho_g = np.asarray(rho_g, dtype=np.complex128)
@@ -755,6 +766,12 @@ def write_qe_save(directory, result, calculation, *, gamma_only: bool | None = N
     Refused: a spin spiral (``pw.x`` has none), and a state ``pw.x`` cannot
     hold in ``occup.txt`` (a background Hubbard manifold or a ``Hubbard_V``,
     which defuqumat does not have either).
+
+    Not detectable here, and so not refused: the folder is for a ``pw.x``
+    built **without** HDF5, which starts from atoms when it finds no
+    ``charge-density.hdf5``, and for a run **without** ``memory = 'small'``
+    on more than one FFT rank, which reads the coefficients in another order
+    (:mod:`defuqumat.io.qe_gvectors`). Neither says anything when it happens.
     """
     from defuqumat.io.qe_gvectors import qe_gvector_order
 

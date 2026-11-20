@@ -28,6 +28,18 @@ is enumerated whatever the bounds, as long as they hold the sphere.
 Measured against the Miller record of ``pw.x`` 7.5's own files: identical on
 the cubic, the molecule-in-a-box and the ``K_POINTS gamma`` fixtures under
 ``tests/data/qe/save/`` and on a triclinic cell (``PLAN.md`` P180).
+
+**The order is the global one, and ``memory = 'small'`` does not use it on
+more than one FFT rank** (audit 2026-11-20 #3, read in the source and not run).
+``init_run.f90:89-90`` calls ``ggen`` with ``no_global_sort = smallmem``, and
+``smallmem`` is ``memory == 'small'`` (``input.f90:902``). Then each rank
+enumerates only its own sticks (``recvec_subs.f90:140-142``), sorts them
+locally, and numbers them ``ig_l2g = ng + ngm_offset`` (``:238-239``), so the
+global index is blocked by rank. ``read_rhog`` scatters with that ``ig_l2g``
+and ``ngm_g`` is unchanged, so a file in the global order is placed on the
+wrong G-vectors with no message, while ``G = 0`` and so the charge usually
+stay right. On one FFT rank the local sort is the global one. Writing the
+rank-blocked order would need ``pw.x``'s stick distribution, and is not done.
 """
 
 from __future__ import annotations
