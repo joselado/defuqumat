@@ -293,8 +293,9 @@ def wilson_z2(
 
     ``offset`` must be 0 or 1/2 modulo 1: only then is the plane mapped onto
     itself by time reversal, and only then is the crossing count a Z2. Another
-    plane is refused, with the tolerance the parity route's TRIM check uses
-    (audit 2026-11-20c #4).
+    plane is refused, with 1e-8 on ``2 offset`` and no relative part, which is
+    stricter than the parity route's TRIM check (``np.allclose`` with ``atol =
+    1e-8`` keeps its default ``rtol``) (audit 2026-11-20c #4).
     """
     if not np.isclose(2.0 * float(offset), np.rint(2.0 * float(offset)), rtol=0.0,
                       atol=1e-8):

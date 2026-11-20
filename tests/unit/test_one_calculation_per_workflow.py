@@ -386,15 +386,15 @@ def test_the_overlap_metric_reads_nelec_without_a_second_calculation(
     assert _electrons(system, pseudos) == expected
 
 
-def test_the_overlap_metric_nelec_of_two_paw_species(pseudo_dir, monkeypatch):
-    """Two species with different valence charges, PAW: the same sum, the same order."""
+def test_the_overlap_metric_nelec_of_two_species(pseudo_dir, monkeypatch):
+    """Two species with different valence charges: the same sum, in the same order."""
     from pathlib import Path
 
     from defuqumat.io.pwin import read_pw_input
     from defuqumat.workflows.geometry import _electrons
 
     cases = Path(__file__).resolve().parents[1] / "data" / "qe"
-    system = build_system(read_pw_input(cases / "alas-paw-berry.scf.in"))
+    system = build_system(read_pw_input(cases / "alas-berry.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
     expected = Calculation(system, pseudos).nelec
     assert expected == 8.0
