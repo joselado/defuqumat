@@ -11858,8 +11858,15 @@ on one more call:
 | `p`, 21 | 0.597 | 0.588 | 18.9 MB | 5.0 MB |
 | `p`, 41 | 1.099 | 0.917 | 34.7 MB | 5.0 MB |
 | `pz`, 41 | 0.480 | 0.453 | 13.1 MB | 2.7 MB |
+| `p`, 1 (no `bias`) | 0.206, 0.208 | 0.204, 0.205 | 3.1 MB | 4.9 MB |
+| `s - pz`, 1 (no `bias`) | 0.159, 0.158 | 0.213, 0.158 | 2.6 MB | 3.3 MB |
+| `pz`, 1 (no `bias`) | 0.165, 0.120 | 0.120, 0.119 | 2.6 MB | 2.6 MB |
 
-The peak no longer grows with the energies. The audit's case (`p`, 21 energies, 900 k-points, 60 bands)
+The one-energy rows are medians of 15, two runs of each arm alternated, because at this size a run
+lands at about 0.12 s or about 0.165 s for the same work (`pz` read 0.118 and 0.166 in two runs of
+the new arm, 0.165 and 0.120 of the old); the pairs that agree are the measurement, and at one
+energy the two routes cost the same. There the peak grows for `p`, since its 9 basis Grams replace 3
+channel Grams. The peak no longer grows with the energies. The audit's case (`p`, 21 energies, 900 k-points, 60 bands)
 held 3.3 GB of Grams before and holds 9 x 900 x 60^2 x 16 B = 0.47 GB of basis Grams now. On 27 cases of
 the hydrogen sheet and its spinor (`pz`, `pxy`, `p`, `CO`, `s - pz`, `dz2`, raw and continued, no
 substrate projector and a `z` and an `x` one at polarization 0.7, 21 energies, two heights) the four
