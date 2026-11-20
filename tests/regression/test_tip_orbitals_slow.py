@@ -110,6 +110,29 @@ def test_the_wedge_turns_the_orbital_with_each_operation(spec):
     assert np.max(np.abs(got - right)) / np.max(np.abs(right)) < 1e-6
 
 
+@pytest.mark.parametrize("spec", ["pxy", "p", "CO", "Pb"], ids=str)
+def test_the_channel_maps_on_the_wedge_are_those_of_the_grid(spec):
+    """V9 for each channel (audit 2026-11-20 #4 and #5): the sum over the
+    channels of these tips is invariant, and before the fix each channel map
+    on the wedge was the group average of the channels, while the total was
+    right. The bound is V9's; see the fix log of the audit for the numbers.
+    """
+    calculator = _converged("graphene-monolayer")
+    scf = calculator.get_scf()
+    options = dict(exit_height=0.38, height=0.62, shape=(5, 5), broadening=0.03,
+                   energies=float(scf.fermi_energy) + np.array([-0.35, -0.2, 0.15]),
+                   incoherent=False, tip_orbital=spec, tip_channels=True)
+    right = run_vertical_transport(
+        calculator.system, calculator.pseudos, scf, states=_graphene_states(12),
+        **options)
+    got = run_vertical_transport(
+        calculator.system, calculator.pseudos, scf,
+        states=_graphene_states(12, reduced=True), **options)
+    peak = np.max(np.abs(np.asarray(right.values)))
+    assert np.max(np.abs(np.asarray(got.tip_channels)
+                         - np.asarray(right.tip_channels))) / peak < 1e-6
+
+
 def test_the_wedge_test_fails_with_the_rotation_transposed(monkeypatch):
     """The guard: ``g`` for ``g^-1`` reads 0.30 of the peak for ``s + 0.7 px``."""
     calculator = _converged("graphene-monolayer")

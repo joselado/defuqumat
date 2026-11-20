@@ -543,6 +543,89 @@ def test_an_invariant_tip_is_not_turned_and_a_hybrid_is():
     assert flipped["s"] == pytest.approx(kept["s"])
 
 
+def _star(cell, kcrystal, rotations, nbnd, seed, gmax=3.0):
+    """A wedge of one k-point and the whole star it stands for.
+
+    ``rotations`` are cartesian (columns) and keep the stacking axis. The
+    states of the image ``R k`` are those of ``k`` turned, ``psi_Rk(r) =
+    psi_k(R^-1 r)``, which puts the coefficient of ``G`` at ``R G`` in the same
+    Gamma-centred ball. Returns ``(wedge, whole, eigenvalues, group)``: two
+    ``(geometry, wavefunctions)`` pairs, the wedge carrying the weight of the
+    whole star, and the group as :func:`_completed_on_a_wedge` reads it, the
+    crystal rows ``M = A R^T A^-1``.
+    """
+    miller = _ball(cell, gmax)
+    lookup = {tuple(h): i for i, h in enumerate(miller)}
+    bg, at = np.asarray(cell.bg), np.asarray(cell.at)
+    states = _orthonormal(miller.shape[0], nbnd, seed)            # (nbnd, npw)
+    kpoints, whole = [], []
+    for rotation in rotations:
+        turn = bg @ rotation.T @ np.linalg.inv(bg)                # on crystal rows
+        moved = np.rint(miller @ turn).astype(int)
+        order = np.array([lookup[tuple(h)] for h in moved])
+        image = np.zeros_like(states)
+        image[:, order] = states
+        kpoints.append(np.asarray(kcrystal) @ turn)
+        whole.append(image)
+    nk = len(rotations)
+    star = _geometry(cell, kpoints, nbnd=nbnd, gmax=gmax, states=np.stack(whole))
+    geometry, wavefunctions = _geometry(cell, [kcrystal], nbnd=nbnd, gmax=gmax,
+                                        states=states[None])
+    geometry = TransportGeometry(
+        miller=geometry.miller, mask=geometry.mask, kcrystal=geometry.kcrystal,
+        kweights=np.array([2.0]), cell=cell, npol=1)
+    assert np.allclose(star[0].kweights.sum(), 2.0) and nk == star[0].kweights.size
+    group = types.SimpleNamespace(
+        crystal=np.stack([at @ r.T @ np.linalg.inv(at) for r in rotations]),
+        translations=np.zeros((nk, 3)), antiunitary=np.zeros(nk, dtype=bool))
+    return (geometry, wavefunctions), star, group
+
+
+@pytest.mark.parametrize("spec", ["pxy", "p", [{"s": 1.0, "px": 0.7}, "py"]], ids=str)
+def test_the_channel_maps_on_a_wedge_are_those_of_the_whole_star(spec):
+    """Audit 2026-11-20 #4 and #5: each channel's map, not only their sum.
+
+    A general k-point of the hexagonal cell and its six images under C6, with
+    the states of each image the turned states of the first. The map completed
+    from the one point is the map of the six, channel by channel. Before the
+    fix the ``pxy`` and ``p`` tips, whose sum over channels is invariant, were
+    not turned, and each channel map came back averaged over the group; the
+    total, which is checked first, was right then too.
+    """
+    from defuqumat.workflows.transport import _completed_on_a_wedge
+
+    cell = HEXAGONAL
+    rotations = []
+    for n in range(6):
+        angle = n * np.pi / 3.0
+        rotations.append(np.array([[np.cos(angle), -np.sin(angle), 0.0],
+                                   [np.sin(angle), np.cos(angle), 0.0],
+                                   [0.0, 0.0, 1.0]]))
+    wedge, star, group = _star(cell, np.array([0.17, 0.06, 0.0]), rotations,
+                               nbnd=5, seed=21)
+    eigenvalues = np.linspace(-0.05, 0.05, 5)
+    points = np.r_[_plane_points(4, 0.7), [[0.31, 0.12, 0.7], [0.55, 0.83, 0.7]]]
+    tip = _tip(spec, cell, kappa=(0.7, 0.6), channel_maps=True)
+    settings = dict(exit_axis=2, energies=np.array([0.0, 0.02]), broadening=0.05,
+                    spin=None, polarization=1.0, tip_spin=None,
+                    tip_polarization=1.0, incoherent=False, exit_region="plane",
+                    method="spectral", smearing="gaussian", tip=tip)
+    right, _ = _assemble(star[0], star[1], np.broadcast_to(eigenvalues, (1, 6, 5)),
+                         points, exit_height=0.2, **settings)
+    got, _ = _completed_on_a_wedge(
+        group, wedge[0], wedge[1], eigenvalues[None, None], points, 0.2, 2,
+        _fake_system([[0, 0, 0.5]], cell), (), settings)
+    scale = np.abs(right["coherent"]).max()
+    assert scale > 0.0
+    assert np.abs(got["coherent"] - right["coherent"]).max() < 1e-12 * scale
+    assert got["channels"].shape == right["channels"].shape
+    assert np.abs(got["channels"] - right["channels"]).max() < 1e-12 * scale
+    # and the test can fail: the channels of the star are not the group average
+    averaged = np.broadcast_to(right["channels"].mean(axis=1, keepdims=True),
+                               right["channels"].shape)
+    assert np.abs(averaged - right["channels"]).max() > 1e-2 * scale
+
+
 def _fake_system(positions, cell, nspin=1, **extra):
     structure = types.SimpleNamespace(
         positions_crystal=lambda _cell: np.asarray(positions, dtype=float))

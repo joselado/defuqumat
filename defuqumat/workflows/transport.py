@@ -527,12 +527,22 @@ def _turned_tips(tip, rotations, cell, npts):
     shells. Returns ``None`` when the tip is the same in every image (``s``,
     ``pz``, the incoherent ``pxy``): ``sum_c c c^dagger`` is then invariant and
     nothing has to be sampled per point.
+
+    **With per-channel maps** (``tip.channel_maps``) the test is made on each
+    channel, ``c c^dagger`` for every ``c``, because the sum being invariant
+    says nothing about one channel: a C3 or C4 turn takes ``px`` into a
+    combination of ``px`` and ``py``, so an unturned ``pxy`` would return each
+    channel map averaged over the group, half the total each (audit
+    2026-11-20 #4 and #5). The total and the incoherent map are the same
+    either way.
     """
     basis = tip.orbital.basis(full_shells=True)
     base = tip.orbital.coefficients(tip.kappa, basis)       # (nE, nc, nb)
     at = np.asarray(cell.at, dtype=float)
     frame = np.asarray(tip.frame, dtype=float)
-    density = np.einsum("eca,ecb->eab", base, base.conj())
+    # ``(nE, nc, nb, nb)`` per channel, or ``(nE, nb, nb)`` summed over them
+    pattern = "eca,ecb->ecab" if tip.channel_maps else "eca,ecb->eab"
+    density = np.einsum(pattern, base, base.conj())
     turned, same = [], True
     for operation in np.asarray(rotations, dtype=float):
         cartesian = np.linalg.inv(at) @ operation @ at
@@ -540,7 +550,7 @@ def _turned_tips(tip, rotations, cell, npts):
         representation = rotation_representation(basis, rotation)
         image = np.einsum("ab,ecb->eca", representation, base)
         turned.append(image)
-        moved = np.einsum("eca,ecb->eab", image, image.conj())
+        moved = np.einsum(pattern, image, image.conj())
         same = same and np.allclose(moved, density, rtol=1e-10,
                                     atol=1e-12 * max(1.0, np.abs(density).max()))
     if same:
