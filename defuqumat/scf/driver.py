@@ -201,7 +201,7 @@ from defuqumat.solvers.davidson import (
 from defuqumat.solvers.subspace import rayleigh_ritz
 from defuqumat.system.builder import System
 from defuqumat.system.cell import fold_radius, pair_separation_bound
-from defuqumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints, covers_a_whole_grid, is_reduced
 from defuqumat.system.spiral import spiral_cartesian, spiral_kcart, spiral_kpoints
 from defuqumat.system.symmetry import (
     apply_symmetry_maps,
@@ -3445,14 +3445,22 @@ class Calculation:
         # 2026-11-20 #14, a departure from ``new_ns_nc``; see
         # :class:`~defuqumat.hubbard.occupations.NsSymmetry`). Not for a
         # magnetic run, ``noinv``, or a fixed tensor moment, which may ask for
-        # a time-reversal-odd moment on purpose.
+        # a time-reversal-odd moment on purpose. The k-set is reduced when the
+        # automatic grid says so, and an explicit list is read as reduced
+        # unless it is a whole grid, since ``irreducible_BZ`` takes it with
+        # time reversal on (audit 2026-11-20b #10). On a whole grid the
+        # partner changes ``ns`` only at round-off, so a wrong "reduced" costs
+        # nothing.
+        kset = self.system.kpoints
+        halved = is_reduced(kset) or (
+            kset.grid is None and not covers_a_whole_grid(kset, self.system.cell))
         kramers = bool(
             setup.noncolin
             and not self.system.domag
             and not self.system.noinv
             and setup.constraints is None
             and not np.any(np.asarray(self.symmetries.t_rev_array()) != 0)
-            and getattr(self.system.kpoints, "reduced", False)
+            and halved
         )
         self.hubbard_symmetry = (
             build_ns_symmetry(

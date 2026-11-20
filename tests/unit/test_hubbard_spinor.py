@@ -505,3 +505,43 @@ def test_the_kramers_average_is_on_for_a_nonmagnetic_spinor_run_only(pseudo_dir)
                                "lspinorb=.true., starting_magnetization(1)=0.3")
     calculation = Calculator.from_text(magnetic, pseudo_dir=pseudo_dir).calculation
     assert not calculation.hubbard_symmetry.kramers
+
+
+def _as_crystal_list(text, kpoints, cell, decimals=10):
+    """``text`` with its ``K_POINTS`` card replaced by ``kpoints`` written out in crystal units."""
+    crystal = np.asarray(kpoints.crystal(cell))
+    weights = np.asarray(kpoints.weights)
+    rows = "\n".join(" ".join(f"{x:.{decimals}f}" for x in k) + f" {w:.{decimals}f}"
+                     for k, w in zip(crystal, weights))
+    head = text.split("K_POINTS")[0]
+    tail = text.split("HUBBARD")[1]
+    return f"{head}K_POINTS crystal\n{len(crystal)}\n{rows}\nHUBBARD{tail}"
+
+
+def test_the_kramers_average_is_on_for_a_wedge_written_as_an_explicit_list(pseudo_dir):
+    """The automatic wedge of spin-orbit Pt, written out as a K_POINTS list (audit 2026-11-20b #10).
+
+    The flag of #14 read ``KPoints.reduced``, which only an automatic grid
+    sets, so the same wedge written as a list summed ``ns`` without its
+    Kramers partner. It is now on for the list as for the automatic set, and
+    off for the whole 3x3x3 grid written as a list, where time reversal
+    reduced nothing.
+    """
+    from defuqumat import Calculator
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+    from defuqumat.system.kpoints import KPoints
+
+    automatic = build_system(parse_pw_input(_PT_SOC))
+    assert automatic.kpoints.reduced and automatic.kpoints.nk == 4
+    wedge = _as_crystal_list(_PT_SOC, automatic.kpoints, automatic.cell)
+    listed = Calculator.from_text(wedge, pseudo_dir=pseudo_dir).calculation
+    assert listed.system.kpoints.grid is None and listed.system.kpoints.nk == 4
+    symmetry = listed.hubbard_symmetry
+    assert symmetry is not None and symmetry.kramers and symmetry.nsym == 48
+
+    whole = KPoints.automatic((3, 3, 3), (0, 0, 0), automatic.cell)
+    grid = _as_crystal_list(_PT_SOC, whole, automatic.cell, decimals=7)
+    listed = Calculator.from_text(grid, pseudo_dir=pseudo_dir).calculation
+    assert listed.system.kpoints.nk == 27
+    assert not listed.hubbard_symmetry.kramers

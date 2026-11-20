@@ -196,7 +196,11 @@ class NsSymmetry:
     a crystal a wedge run of ``pw.x`` keeps the odd part this code removes. A
     magnetic run (a magnetization, ``t_rev`` operations), ``noinv``, a fixed
     tensor moment and a k-set that was not reduced keep the spatial average
-    alone.
+    alone. An explicit ``K_POINTS`` list counts as reduced unless it is a whole
+    grid (:func:`~defuqumat.system.kpoints.covers_a_whole_grid`), since
+    ``irreducible_BZ`` takes such a list with time reversal on; the flag of an
+    automatic grid alone missed a wedge written out as a list (audit
+    2026-11-20b #10).
     """
 
     __slots__ = (

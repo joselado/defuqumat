@@ -177,8 +177,13 @@ of the penalty is not part of the reported total energy.
     without inversion (wurtzite,
     zincblende) `pw.x` keeps a part of the matrix that is odd under time
     reversal, and its value depends on which point of each $k$, $-k$ pair the
-    reduction kept. We remove it. A magnetic run, `noinv = .true.` and a fixed
-    tensor moment keep the average over the space group only.
+    reduction kept. We remove it. This holds for an automatic grid reduced by
+    symmetry, and also for a `K_POINTS tpiba` or `crystal` list, because `pw.x`
+    also reads such a list as reduced with time reversal. The only list that keeps
+    the average over the space group alone is a whole grid written out, with equal
+    weights on every point of an $n_1 \times n_2 \times n_3$ mesh, since there
+    $k$ and $-k$ are both in the list. A magnetic run, `noinv = .true.` and a
+    fixed tensor moment keep the average over the space group only.
 
     A fixed tensor moment needs a spinor run, because in a collinear run it
     reduces to the fixed spin moment that `constrained_magnetization` already
