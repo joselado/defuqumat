@@ -120,7 +120,8 @@ import numpy as np
 
 from defuqumat.basis.planewaves import PlaneWaveBasis
 from defuqumat.batching import k_chunks, resolve_k_batch
-from defuqumat.forces.energy import FrozenState, reject_potential_only, state_from_result
+from defuqumat.forces.energy import (FrozenState, reject_potential_only,
+                                     reject_tensor_moment_constraint, state_from_result)
 from defuqumat.hubbard.energy import hubbard_energy
 from defuqumat.hubbard.occupations import occupation_matrix
 from defuqumat.hubbard.projectors import build_hubbard_projectors
@@ -697,6 +698,7 @@ def _require_a_differentiable_spiral(calculation) -> None:
             "being differentiated with respect to"
         )
     reject_potential_only(calculation)
+    reject_tensor_moment_constraint(calculation, "dE/dq")
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "dE/dq with a magnetic field or a constrained moment is not "

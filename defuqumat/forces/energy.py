@@ -80,7 +80,7 @@ from defuqumat.scf.potential import total_charge
 
 __all__ = ["FrozenState", "frozen_energy", "energy_at", "reject_spinors", "reject_potential_only",
            "reject_magnetic_field", "reject_spinor_spiral",
-           "state_from_result"]
+           "reject_tensor_moment_constraint", "state_from_result"]
 
 
 #: The fields of a :class:`~defuqumat.scf.driver.Calculation` that a compiled
@@ -599,6 +599,35 @@ def reject_magnetic_field(calculation) -> None:
             "differentiated and the missing term would be silent. The stress "
             "refuses the same combination for the same reason"
         )
+
+
+def reject_tensor_moment_constraint(calculation, what: str = "the forces") -> None:
+    """A fixed tensor moment makes the frozen state non-stationary, as a field does.
+
+    The ``TENSOR_MOMENTS`` penalty ``E_pen = (lambda/2) sum (w - w_target)^2``
+    (:mod:`defuqumat.hubbard.ftm`) puts its gradient into ``v_ns``, so the SCF
+    converges to a state that makes ``E + E_pen`` stationary, while ``E_pen`` is
+    outside the reported total and outside :func:`energy_at`. The derivative of
+    ``E`` alone then misses ``lambda (w - w_target) dw/dx``, and ``w`` is
+    measured through Hubbard projectors that move with the atoms, with a strain
+    and with a spiral's ``q``, so the term is not zero; the force comes back
+    finite and symmetric. :func:`reject_magnetic_field` refuses the same shape
+    for a constrained moment, and lifting either is the same work: the penalty's
+    energy in :func:`energy_at`, and a measurement of its derivative against a
+    finite difference of ``E + E_pen`` (audit 2026-11-20c #21).
+    """
+    if getattr(getattr(calculation, "hubbard", None), "constraints", None) is None:
+        return
+    raise NotImplementedError(
+        f"a fixed tensor moment (TENSOR_MOMENTS) is not implemented for "
+        f"{what}: the SCF converged under the penalty (lambda/2) sum "
+        "(w - w_target)^2, whose energy is outside the reported total (see "
+        "defuqumat.hubbard.ftm), so the state is stationary for a different "
+        "functional than the one being differentiated, and the penalty's own "
+        "derivative, lambda (w - w_target) dw/dx through the moving Hubbard "
+        "projectors, would be missing in silence. A constrained moment is "
+        "refused for the same reason"
+    )
 
 
 def _mixed_state_part(override, build, moved, *arguments):

@@ -189,6 +189,17 @@ of the penalty is not part of the reported total energy.
     reduces to the fixed spin moment that `constrained_magnetization` already
     gives.
 
+    With a fixed tensor moment the forces, the stress and the gradient in the
+    spiral wavevector give an error. The energy of the penalty is not in the
+    total energy, so the converged state is not a stationary point of the
+    energy we differentiate, and the force would miss the derivative of the
+    penalty. On the BN layer of `tests/data/qe/bn-ldau-noncol.in` with the card
+    above, at `ecutwfc = 25` and a penalty of 20 Ry, this missing force on N is
+    $4.9\times10^{-3}$ Ry/bohr. A
+    `tstress = .true.` in the input then gives a warning, and `scf.stress` is
+    `None`. A constrained moment (`constrained_magnetization`) gives the same
+    error for the same reason.
+
     `starting_ns_eigenvalue` gives an error with `scf_solver='newton-krylov'`.
     `pw.x` applies it once, to the occupation matrix of the first iteration of
     the mixing loop, and the Newton solver has no such iteration. You can run the

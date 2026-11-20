@@ -245,6 +245,7 @@ def test_the_elastic_constants_call_the_refusal_that_names_them():
     [
         ("reject_potential_only", "the meta-GGA refusal"),
         ("reject_magnetic_field", "the magnetic-field refusal"),
+        ("reject_tensor_moment_constraint", "the tensor-moment refusal"),
     ],
 )
 def test_every_force_method_passes_the_same_guards(guard, name):
@@ -731,3 +732,74 @@ def test_the_strain_route_cuts_the_smearing_tighter_than_the_phonon():
     assert phonon.small == _SMALL
     assert strain.small == 1e-12
     assert strain.cutoff > phonon.cutoff > 0.5
+
+
+# -- a fixed tensor moment, the constrained moment of the occupation matrix ----
+
+def _bn_spinor_dft_u(pseudo_dir):
+    """``bn-ldau-noncol.in`` at 20 Ry and one k-point, with P62e's fixed ``L . S`` of N 2p."""
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from tests.conftest import GENERATED
+
+    text = (GENERATED / "bn-ldau-noncol.in").read_text().replace(
+        "ecutwfc = 35", "ecutwfc = 20").replace("ecutrho = 350.0", "ecutrho = 160.0").replace(
+        "3 3 1 0 0 0", "1 1 1 0 0 0").replace(
+        " &system", " &system\n    tensor_moment_penalty = 20.0") + (
+        "TENSOR_MOMENTS\n N-2p 1 1 0 0 -0.40\n")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    return Calculation(system, pseudos)
+
+
+def test_a_fixed_tensor_moment_is_refused_by_the_force_and_the_stress(pseudo_dir):
+    """The penalty is outside the reported total, as a constrained moment's field is.
+
+    The SCF converges ``E + E_pen`` and the force and stress differentiate ``E``
+    alone, so ``lambda (w - w_target) dw/dx`` through the moving Hubbard
+    projectors is missing and the answer is finite and symmetric. On
+    ``419b5fb7`` neither guard looked at ``hubbard.constraints``
+    (audit 2026-11-20c #21). The force is refused before it reads the state,
+    so an empty one serves; the same spinor DFT+U cell without the constraint
+    passes both guards.
+    """
+    import copy
+    import dataclasses
+
+    import jax.numpy as jnp
+
+    from defuqumat.forces import compute_forces
+    from defuqumat.forces.energy import FrozenState, reject_tensor_moment_constraint
+    from defuqumat.stress.energy import require_a_differentiable_cell
+
+    constrained = _bn_spinor_dft_u(pseudo_dir)
+    assert constrained.hubbard.constraints is not None and constrained.noncolin
+    empty = FrozenState(jnp.zeros((1, 1, 1, 1)), jnp.zeros((1, 1, 1)), jnp.zeros((1, 1, 1)))
+    for method in ("autodiff", "analytic"):
+        with pytest.raises(NotImplementedError, match="TENSOR_MOMENTS") as raised:
+            compute_forces(constrained, empty, method=method)
+        assert "the forces" in str(raised.value)
+    with pytest.raises(NotImplementedError, match="TENSOR_MOMENTS") as raised:
+        require_a_differentiable_cell(constrained)
+    assert "the stress" in str(raised.value)
+
+    free = copy.copy(constrained)
+    free.hubbard = dataclasses.replace(constrained.hubbard, constraints=None)
+    assert free.is_hubbard and free.hubbard.constraints is None
+    reject_tensor_moment_constraint(free)
+    require_a_differentiable_cell(free)
+
+
+def test_dE_dq_passes_the_tensor_moment_guard():
+    """The spiral's gradient has the same missing term, through ``wfcU(q)``.
+
+    Since the audit of 2026-11-20b (#1, #2) ``dE/dq`` carries ``E_U`` and rebuilds
+    the Hubbard projectors at the traced ``q``, so a penalty on ``w`` moves with
+    ``q`` as it moves with the atoms.
+    """
+    import inspect
+
+    from defuqumat.forces.spiral import _require_a_differentiable_spiral
+
+    body = inspect.getsource(_require_a_differentiable_spiral)
+    assert 'reject_tensor_moment_constraint(calculation, "dE/dq")' in body
