@@ -130,7 +130,9 @@ def test_spin_orbit_coupling_is_one_moment_and_nothing_else(l):
     """
     width = 2 * l + 1
     ls = 0.5 * np.einsum("cab,cst->stab", orbital_matrices(l), PAULI)
-    w = decompose(ls.reshape(4, width, width), l)
+    # ``decompose`` takes an ``ns``, which is rho^T: the operator goes in
+    # transposed on the combined (spin, m) index.
+    w = decompose(ls.transpose(1, 0, 3, 2).reshape(4, width, width), l)
     index = {tuple(label): n for n, label in enumerate(moment_labels(l))}
     spin_orbit = index[(1, 1, 0, 0)]
 
@@ -149,3 +151,99 @@ def test_the_labels_cover_the_allowed_ranks():
     assert MomentLabel((1, 1, 3, 0)) not in labels     # r > k + p
     assert MomentLabel((1, 1, 0, 0)).name == "L . S"
     assert str(MomentLabel((0, 1, 1, -1))) == "w^(011)_-1"
+
+
+def _ns_of_states(states, l):
+    """The spinor ``ns`` :func:`occupation_matrix` builds from orbital coefficients.
+
+    ``states`` is ``(nbnd, 2 (2l+1))`` on the flat basis ``(spin, m)``, spin
+    slowest, each fully occupied. The projectors are the basis itself, so the
+    layout of the result is the routine's own and not one asserted here.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.hubbard.occupations import occupation_matrix
+
+    width = 2 * l + 1
+    nbnd = states.shape[0]
+    wfcU = jnp.eye(2 * width, dtype=complex)[None]                 # (nk, npw, nwfcU)
+    psi = jnp.asarray(states, dtype=complex)[None, None]           # (nspin, nk, nbnd, npw)
+    weights = jnp.ones((1, 1, nbnd))
+    columns = jnp.arange(2 * width).reshape(1, 2, width)
+    mask = jnp.ones((1, width), dtype=bool)
+    ns = occupation_matrix(wfcU, psi, weights, columns, mask)
+    return np.asarray(ns)[:, 0]                                     # (4, width, width)
+
+
+def _flat_operator(op):
+    """``(2, 2, w, w)`` operator layout ``<a s|O|b t>`` as a ``(2w, 2w)`` matrix."""
+    width = op.shape[-1]
+    return np.transpose(op, (0, 2, 1, 3)).reshape(2 * width, 2 * width)
+
+
+def test_the_spin_orbit_moment_of_a_filled_quartet_is_its_expectation_value():
+    """``Tr(L.S rho)`` = 2 on the four ``j = 3/2`` states of a ``p`` shell (audit 2026-11-20 #8).
+
+    ``ns`` from :func:`occupation_matrix` is rho^T, and Elk's ``dmtotm3`` is
+    ``Tr(Gamma rho)``. Contracting the operator with ``ns`` as it stands gave
+    ``Tr(Gamma^T rho)``, which on this state is -2/3: the opposite sign and a
+    third of the size. ``L.S = c Gamma^{110}_0`` with ``c = -sqrt(3)`` here.
+    """
+    l, width = 1, 3
+    ls = _flat_operator(0.5 * np.einsum("cab,cst->stab", orbital_matrices(l), PAULI))
+    values, vectors = np.linalg.eigh(ls)
+    quartet = vectors[:, values > 0].T                             # j = 3/2, L.S = 1/2
+    assert quartet.shape[0] == 4
+    assert np.trace(ls @ (quartet.T @ quartet.conj())).real == pytest.approx(2.0, abs=1e-12)
+
+    w = decompose(_ns_of_states(quartet, l), l)
+    index = {tuple(label): n for n, label in enumerate(moment_labels(l))}
+    c = -np.sqrt(l * (l + 1) * (2 * l + 1) / 2.0)
+    assert c * w[index[(1, 1, 0, 0)]] == pytest.approx(2.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+def test_spin_and_orbital_moments_along_one_axis_are_parallel_triples(axis):
+    """``w^{011}`` and ``w^{101}`` of a state with ``L`` and ``S`` both along one axis.
+
+    The spin triple and the orbital triple are both rank-1 tensors in the same
+    real form, so a state with ``<L>`` and ``<S>`` along the same axis gives two
+    parallel triples, along x, y and z. Read as ``Tr(Gamma^T rho)`` the spin
+    triple flipped its ``y`` part (``sigma_y^T = -sigma_y``) and the orbital one
+    flipped all three (``L^T = -L`` in real harmonics), so x and z came out
+    antiparallel (audit 2026-11-20 #8). Nothing here is Elk's spin convention,
+    which decides only a common sign.
+    """
+    l, width = 1, 3
+    lvalues, lvectors = np.linalg.eigh(orbital_matrices(l)[axis])
+    svalues, svectors = np.linalg.eigh(PAULI[axis])
+    orbital, spin = lvectors[:, np.argmax(lvalues)], svectors[:, np.argmax(svalues)]
+    state = np.kron(spin, orbital)[None]                           # flat (spin, m)
+    w = decompose(_ns_of_states(state, l), l)
+    index = {tuple(label): n for n, label in enumerate(moment_labels(l))}
+    spin_triple = np.array([w[index[(0, 1, 1, t)]] for t in (-1, 0, 1)])
+    orbital_triple = np.array([w[index[(1, 0, 1, t)]] for t in (-1, 0, 1)])
+    cosine = spin_triple @ orbital_triple / (
+        np.linalg.norm(spin_triple) * np.linalg.norm(orbital_triple))
+    assert cosine == pytest.approx(1.0, abs=1e-12)
+
+
+def test_the_constraint_measures_what_the_decomposition_measures():
+    """``ftm.measured_moments`` is ``decompose`` times ``sqrt(2(2l+1))``, on a complex ``ns``.
+
+    The two contractions are written separately (``ftm.py`` pads the basis to
+    ``ldmx``), and the constraint must fix the moment the decomposition reports.
+    """
+    from defuqumat.hubbard.ftm import TensorMomentConstraint, measured_moments
+
+    l, width = 2, 5
+    ns = _hermitian(l).reshape(4, width, width)
+    basis = moment_matrices(l)
+    scale = np.sqrt(2.0 * width)
+    n = len(basis)
+    constraint = TensorMomentConstraint(
+        gamma=basis.reshape(n, 4, width, width), slot=np.zeros(n, dtype=int),
+        target=np.zeros(n), penalty=1.0, labels=(), scale=np.full(n, scale),
+    )
+    assert measured_moments(ns[:, None], constraint) == pytest.approx(
+        decompose(ns, l) * scale, abs=1e-12)
