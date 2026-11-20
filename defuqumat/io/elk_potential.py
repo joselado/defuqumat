@@ -49,13 +49,19 @@ Elk's own PBE family (20, 21, 22, ``xcgrad = 1``) are, unpolarized, collinear
 and (LDA) noncollinear. Refused by name: a libxc functional (``xcgrad = 2``, the
 ``ggamt_2a/2b`` route) or a meta-GGA, a noncollinear state under a GGA
 (``dncgga``), a finite nucleus, and a non-spin-polarized functional on a
-spin-polarized state (Elk refuses it too). External magnetic fields are not
-part of what is returned: ``B_s`` is ``B_xc`` here, and Elk adds ``bfieldc``
-and ``bfcmt`` from its own input in ``genbs`` every loop.
+spin-polarized state (Elk refuses it too). The switches of ``elk.in`` that
+change ``potks`` are refused where they act (:func:`refuse_untranscribed`): a
+constant electric field (``tefield``), the scaled spin exchange-correlation
+(``sxcscf``) and ``nosource`` on a spin-polarized state, and the muffin-tin
+gradient smoothing (``msmgmt``, ``stable``) under a GGA. External magnetic
+fields are not part of what is returned: ``B_s`` is ``B_xc`` here, and Elk
+adds ``bfieldc`` and ``bfcmt`` from its own input in ``genbs`` every loop.
 
 **The group** is Elk's (:func:`elk_space_group`, ``findsymcrys``), not QE's,
-with the spin rotation of each operation chosen as Elk chooses it
-(:func:`crystal_symmetrizer`).
+with every translation of a non-primitive cell, the template's ``symtype``
+(``nosym``), and the spin rotation of each operation chosen as Elk chooses it
+(:func:`crystal_symmetrizer`); its order is checked against the ``Number of
+crystal symmetries`` of ``INFO.OUT``.
 
 Units: Hartree and bohr inside, as Elk; :func:`kohn_sham_potential` returns
 Hartree. :class:`~defuqumat.io.elk.ElkState` holds Rydberg.
@@ -71,7 +77,7 @@ import numpy as np
 
 __all__ = ["ElkParameters", "read_elk_parameters", "kohn_sham_potential",
            "coulomb_potential", "exchange_correlation_potential", "radial_weights",
-           "crystal_symmetrizer", "elk_space_group", "symmetrizer"]
+           "crystal_symmetrizer", "elk_space_group", "symmetrizer", "refuse_untranscribed"]
 
 FOURPI = 4.0 * np.pi
 Y00 = 0.28209479177387814347
@@ -95,6 +101,22 @@ class ElkParameters:
     point_nucleus: bool
     xctype: tuple
     spinpol: bool
+    #: ``nsymcrys`` as ``INFO.OUT`` prints it, the order of Elk's crystal group
+    #: (``None`` when the line is missing).
+    nsymcrys: int | None = None
+    #: ``elk.in``'s ``symtype`` (``nosym = .true.`` is 0); 1 when it is not set.
+    symtype: int = 1
+    #: ``INFO.OUT``'s "scaled spin exchange-correlation enabled" (``sxcscf /= 1``).
+    tssxc: bool = False
+    #: ``INFO.OUT``'s "Constant electric field applied across unit cell".
+    tefield: bool = False
+    #: ``elk.in``'s muffin-tin gradient smoothing, after ``stable`` and ``metagga``.
+    msmgmt: int = 0
+    #: ``elk.in``'s ``nosource`` (``projsbf`` on ``B_xc``).
+    nosource: bool = False
+    #: Whether an ``elk.in`` was found beside ``INFO.OUT`` (the last three fields
+    #: are Elk's defaults when it was not).
+    input_read: bool = False
 
     @property
     def lmmaxi(self) -> int:
@@ -105,8 +127,50 @@ class ElkParameters:
         return (self.lmaxo + 1) ** 2
 
 
+def _fortran_logical(token: str) -> bool:
+    """A list-directed logical: an optional ``.``, then ``T`` or ``F``."""
+    token = token.strip().strip("'\"").lstrip(".")
+    if not token or token[0].upper() not in "TF":
+        raise ValueError(f"'{token}' is not a Fortran logical")
+    return token[0].upper() == "T"
+
+
+def _elk_input_switches(path: Path) -> dict:
+    """``symtype``, ``msmgmt`` and ``nosource`` as ``readinput.f90`` sets them.
+
+    The blocks are taken in file order, as ``readinput`` reads them: ``nosym``
+    with ``.true.`` sets ``symtype = 0``, ``stable`` and ``metagga`` raise
+    ``msmgmt`` to at least 1 and 4, ``msmgmt`` (or ``msmg2mt``) sets it. A
+    block's value is the first item of the next line that is not blank.
+    """
+    lines = [line.strip() for line in path.read_text().splitlines()]
+    lines = [line for line in lines if line and line[0] not in "!#"]
+    out = dict(symtype=1, msmgmt=0, nosource=False)
+    for i, line in enumerate(lines[:-1]):
+        block = line.split()[0].strip("'\"")
+        value = lines[i + 1].replace(",", " ").split()[0]
+        if block == "nosym" and _fortran_logical(value):
+            out["symtype"] = 0
+        elif block == "symtype":
+            out["symtype"] = int(value)
+        elif block == "stable" and _fortran_logical(value):
+            out["msmgmt"] = max(out["msmgmt"], 1)
+        elif block == "metagga" and _fortran_logical(value):
+            out["msmgmt"] = max(out["msmgmt"], 4)
+        elif block in ("msmgmt", "msmg2mt"):
+            out["msmgmt"] = int(value)
+        elif block == "nosource":
+            out["nosource"] = _fortran_logical(value)
+    return out
+
+
 def read_elk_parameters(directory) -> ElkParameters:
-    """Read the template run's ``INFO.OUT`` (its first, initialisation block)."""
+    """Read the template run's ``INFO.OUT`` (its first, initialisation block).
+
+    ``elk.in`` beside it is read too, when it is there, for the three switches
+    that change ``potks`` and that ``INFO.OUT`` does not print: ``symtype``
+    (``nosym``), ``msmgmt`` (also set by ``stable``) and ``nosource``.
+    """
     text = (Path(directory) / "INFO.OUT").read_text()
     text = text.split("Self-consistent loop started")[0]
 
@@ -122,6 +186,9 @@ def read_elk_parameters(directory) -> ElkParameters:
     lmax = re.search(r"outer part of muffin-tin\s*:\s*(\d+)\s*\n\s*inner part of muffin-tin\s*:\s*(\d+)", text)
     if xc is None or lmax is None or not spzn or not nrmti:
         raise ValueError(f"{directory}/INFO.OUT is not the INFO.OUT of an Elk ground-state run")
+    nsymcrys = re.search(r"Number of crystal symmetries\s*:\s*(\d+)", text)
+    elk_in = Path(directory) / "elk.in"
+    switches = _elk_input_switches(elk_in) if elk_in.is_file() else {}
     return ElkParameters(
         nrmti=nrmti,
         lmaxi=int(lmax.group(2)),
@@ -134,7 +201,57 @@ def read_elk_parameters(directory) -> ElkParameters:
         point_nucleus="Nuclei treated as point charges" in text,
         xctype=tuple(int(xc.group(i)) for i in (1, 2, 3)),
         spinpol="spin-unpolarised" not in text,
+        nsymcrys=None if nsymcrys is None else int(nsymcrys.group(1)),
+        tssxc="scaled spin exchange-correlation enabled" in text,
+        tefield="Constant electric field applied across unit cell" in text,
+        input_read=bool(switches),
+        **switches,
     )
+
+
+def refuse_untranscribed(params: ElkParameters, spinpol: bool, parts=("coulomb", "xc")):
+    """Refuse, by name, the Elk switches that change ``potks`` and are not transcribed.
+
+    Each is refused only where it acts: a constant electric field (``tefield``)
+    in ``potcoul`` (``potefield``) and in the group (``findsymcrys`` drops the
+    translations along the field); the scaled spin exchange-correlation
+    (``tssxc``) and ``nosource`` (``projsbf`` on ``B_xc``) on a spin-polarized
+    state; the muffin-tin gradient smoothing (``msmgmt``, which ``stable`` and
+    ``metagga`` also set) under a GGA, where ``gradrfmt``/``grad2rfmt`` call
+    ``rfmtsm``. Without an ``elk.in`` beside ``INFO.OUT`` the last two cannot
+    be read, and a GGA or a spin-polarized template is then warned about.
+    """
+    gga = params.xctype[0] >= 20
+    if "coulomb" in parts and params.tefield:
+        raise NotImplementedError(
+            "the template was run with a constant electric field (tefield): Elk adds "
+            "potefield to the Coulomb potential and drops the translations along the "
+            "field from its group, and neither is transcribed")
+    if "xc" not in parts:
+        return
+    if spinpol and params.tssxc:
+        raise NotImplementedError(
+            "the template was run with a scaled spin exchange-correlation (sxcscf /= 1): "
+            "Elk scales the magnetization before the functional and B_xc after it, "
+            "which is not transcribed")
+    if spinpol and params.nosource:
+        raise NotImplementedError(
+            "the template was run with nosource: Elk removes the source term of B_xc "
+            "(projsbf), which is not transcribed")
+    if gga and params.msmgmt > 0:
+        raise NotImplementedError(
+            f"the template smooths the muffin-tin gradients (msmgmt = {params.msmgmt}, "
+            "also set by stable or metagga): Elk's gradrfmt and grad2rfmt then call "
+            "rfmtsm, which is not transcribed, and every gradient of the PBE path "
+            "changes. Run the template with msmgmt 0")
+    if not params.input_read and (gga or spinpol):
+        import warnings
+
+        warnings.warn(
+            "the template has no elk.in beside INFO.OUT, so msmgmt (or stable) and "
+            "nosource cannot be read; they change Elk's potks under a GGA and on a "
+            "spin-polarized state, and the potential written assumes they are off",
+            stacklevel=3)
 
 
 # ---------------------------------------------------------------- radial
@@ -387,6 +504,7 @@ def coulomb_potential(state, params: ElkParameters, setup: _Setup | None = None)
     ``vclmt`` is ``(lmmaxo, nrmtmax, natmtot)`` real, as on :class:`ElkState`;
     ``vclir`` is ``ngridg``.
     """
+    refuse_untranscribed(params, state.magmt is not None, parts=("coulomb",))
     setup = _setup(state, params) if setup is None else setup
     if not params.point_nucleus:
         raise NotImplementedError("a finite nucleus (ptnucl = .false.) is not transcribed")
@@ -644,6 +762,7 @@ def exchange_correlation_potential(state, params: ElkParameters, symmetry=None,
     ``ggamt_1``/``ggair_1``) are transcribed, the latter unpolarized and
     collinear.
     """
+    refuse_untranscribed(params, state.magmt is not None, parts=("xc",))
     setup = _setup(state, params) if setup is None else setup
     xctype = params.xctype[0]
     gga = xctype in (20, 21, 22)
@@ -1167,24 +1286,17 @@ def symmetrizer(state, rotations_cart, atom_maps, lmax: int, spin_matrices=None)
     return apply
 
 
-def elk_space_group(geometry):
-    """``(rotations, atom_maps)``: Elk's crystal group of ``geometry`` (``findsymcrys``).
+def _lattice_symmetries(avec):
+    """``findsymlat``: the lattice symmetries in Elk's ``symlat`` order, as integer matrices.
 
-    Every lattice symmetry (integer ``M`` with entries in ``{-1, 0, 1}`` keeping
-    the metric, ``findsymlat``) with **any** fractional translation that maps
-    each atom onto an atom of its species, to ``epslat``. This is not QE's
-    search, which keeps a translation only when it is commensurate with the FFT
-    grid: O2 off the origin in a cubic box has 16 operations in Elk and 8 in
-    ``sgam_at``, and symmetrising with the 8 left 1.3e-3 Ha in ``vxcmt`` (P181).
-    ``rotations`` are cartesian (``v' = R v``); ``atom_maps[k][a]`` is the atom
-    operation ``k`` takes atom ``a`` to.
+    Every ``M`` with entries in ``{-1, 0, 1}`` and determinant +-1 that keeps
+    the metric, in the order of Elk's nested loops (``i11`` outermost, row
+    major), with the identity then **swapped** into the first slot, as
+    ``findsymlat`` does. ``M`` acts on lattice coordinates (``v' = M v``).
     """
     import itertools
 
-    avec = np.asarray(geometry.avec, dtype=float)
     metric = avec @ avec.T
-    frac = np.asarray(geometry.positions, dtype=float) % 1.0
-    species = np.concatenate([[i] * n for i, n in enumerate(geometry.natoms)]).astype(int)
     lattice = []
     for entries in itertools.product((-1, 0, 1), repeat=9):
         m = np.array(entries, dtype=float).reshape(3, 3)
@@ -1192,9 +1304,36 @@ def elk_space_group(geometry):
             continue
         if np.allclose(m.T @ metric @ m, metric, atol=1e-6 * np.abs(metric).max()):
             lattice.append(m)
+    for i, m in enumerate(lattice):
+        if np.array_equal(m, np.eye(3)):
+            lattice[0], lattice[i] = lattice[i], lattice[0]
+            break
+    return lattice
+
+
+def elk_space_group(geometry):
+    """``(rotations, atom_maps)``: Elk's crystal group of ``geometry`` (``findsymcrys``).
+
+    Every lattice symmetry (integer ``M`` with entries in ``{-1, 0, 1}`` keeping
+    the metric, ``findsymlat``) with **every** fractional translation that maps
+    each atom onto an atom of its species, to ``epslat``. This is not QE's
+    search, which keeps a translation only when it is commensurate with the FFT
+    grid: O2 off the origin in a cubic box has 16 operations in Elk and 8 in
+    ``sgam_at``, and symmetrising with the 8 left 1.3e-3 Ha in ``vxcmt`` (P181).
+    In a cell that is not primitive a rotation appears once per pure
+    translation, as ``findsymcrys`` calls ``findsym`` once per candidate
+    translation: Si in the 8-atom cubic cell has 192 operations, the count
+    Elk 11.0.2 prints. ``rotations`` are cartesian (``v' = R v``);
+    ``atom_maps[k][a]`` is the atom operation ``k`` takes atom ``a`` to.
+    This is ``symtype = 1``; :func:`crystal_symmetrizer` takes the subgroup
+    the other two values of ``symtype`` leave.
+    """
+    avec = np.asarray(geometry.avec, dtype=float)
+    frac = np.asarray(geometry.positions, dtype=float) % 1.0
+    species = np.concatenate([[i] * n for i, n in enumerate(geometry.natoms)]).astype(int)
     rotations, maps = [], []
     first = 0
-    for m in lattice:
+    for m in _lattice_symmetries(avec):
         image = frac @ m.T
         for b in np.nonzero(species == species[first])[0]:
             t = frac[b] - image[first]
@@ -1210,46 +1349,90 @@ def elk_space_group(geometry):
             else:
                 rotations.append(avec.T @ m @ np.linalg.inv(avec.T))
                 maps.append(amap)
-                break
     return rotations, maps
 
 
-def crystal_symmetrizer(state, lmax: int, moments=None, spinorb: bool = False):
+def crystal_symmetrizer(state, lmax: int, moments=None, spinorb: bool = False,
+                        params: ElkParameters | None = None):
     """``symrfmt``/``symrvfmt`` over Elk's group for ``state``, as a callable.
 
-    ``moments`` are the per-atom moments (``(nat,)`` collinear, ``(nat, 3)``
-    noncollinear) the magnetic part of the group is chosen from; for each
-    spatial operation the spin rotation is the first that carries every moment
-    onto its image's, as Elk's search takes the first: the identity, then a
-    reversal (a collinear antiferromagnet), then ``det(R) R`` itself, which is
-    the only one Elk allows under spin-orbit coupling (``spinorb``). An
-    operation with none is not in the group. Without spin-orbit coupling Elk's
-    group is a spin-space group, and for moments all parallel to one axis it
-    holds every spatial operation with the identity, so the components of
-    ``B_xc`` average as scalars (tilted O2: round-off against Elk, P181).
-    Returns ``(apply, nsym)``.
+    **The spatial group** is :func:`elk_space_group` for ``symtype = 1``. With
+    ``params`` it follows the template's ``symtype``, as ``findsymcrys`` does:
+    0 (``nosym``) keeps the identity alone (``nsymlat = 1``), 2 keeps the
+    operations without a translation in Elk's frame, which are those that fix
+    the first atom of the first species with the fewest atoms. A group whose
+    order is not the ``nsymcrys`` of ``INFO.OUT`` is refused, except that a
+    count of 1 always means the identity alone, the one group of that order.
+
+    **The spin rotation** of each spatial operation is chosen as ``findsym``
+    chooses it: the first ``det(S) S`` over the lattice symmetries ``S`` in
+    Elk's ``symlat`` order (the identity first) that carries every moment
+    onto its image's, and ``det(R) R`` of the operation itself under
+    spin-orbit coupling (``spinorb``). An operation with none is not in the
+    group. Every candidate is a proper rotation, so a reversal ``-I`` is never
+    one: a collinear antiferromagnet keeps the operations that swap its two
+    sublattices only when the lattice has a twofold axis perpendicular to the
+    moments (two H on a monoclinic lattice with ``bfcmt`` +-z along the unique
+    axis: 1 operation in Elk 11.0.2, not 2). Elk tests the template's input
+    fields (``bfcmt0``, ``bfieldc0``); here ``moments`` (``(nat,)`` collinear,
+    ``(nat, 3)`` noncollinear, as the caller rounds them, to 1e-3) stand in for
+    them, and two moments match within 1e-3 of the largest plus 1e-3, the
+    rounding step, so that two equal moments rounded apart still match.
+    Without spin-orbit coupling Elk's group is a spin-space group, and for
+    moments all parallel to one axis it holds every spatial operation with the
+    identity, so the components of ``B_xc`` average as scalars (tilted O2:
+    round-off against Elk, P181). Returns ``(apply, nsym)``.
     """
     rotations, maps = elk_space_group(state.geometry)
-    if moments is None:
-        return symmetrizer(state, rotations, maps, lmax), len(rotations)
-    m = np.asarray(moments, dtype=float)
-    vectors = np.zeros((len(m), 3))
-    if m.ndim == 1:
-        vectors[:, 2] = m
+    natoms = tuple(state.geometry.natoms)
+    identity = list(range(sum(natoms)))
+    symtype = 1 if params is None else params.symtype
+    nsymcrys = None if params is None else params.nsymcrys
+    if nsymcrys == 1:
+        symtype = 0
+    if symtype == 0:
+        keep = [k for k, (rot, amap) in enumerate(zip(rotations, maps))
+                if amap == identity and np.allclose(rot, np.eye(3), atol=1e-10)]
+    elif symtype == 2:
+        smallest = int(np.argmin(natoms))
+        p0 = int(sum(natoms[:smallest]))
+        keep = [k for k, amap in enumerate(maps) if amap[p0] == p0]
     else:
-        vectors[:] = m
-    scale = max(np.abs(vectors).max(), 1e-12)
-    kept_r, kept_m, spins = [], [], []
-    for rot, amap in zip(rotations, maps):
-        axial = np.linalg.det(rot) * rot
-        candidates = [axial] if spinorb else [np.eye(3), -np.eye(3), axial]
-        for sc in candidates:
-            mapped = vectors @ sc.T
-            if np.all(np.abs(mapped - vectors[amap]) < 1e-3 * scale):
-                kept_r.append(rot)
-                kept_m.append(amap)
-                spins.append(sc)
-                break
+        keep = list(range(len(rotations)))
+    rotations = [rotations[k] for k in keep]
+    maps = [maps[k] for k in keep]
+    if moments is None:
+        kept_r, kept_m, spins = rotations, maps, None
+    else:
+        avec = np.asarray(state.geometry.avec, dtype=float)
+        lattice = [np.eye(3)] if symtype == 0 else [
+            np.linalg.det(m) * (avec.T @ m @ np.linalg.inv(avec.T))
+            for m in _lattice_symmetries(avec)]
+        m = np.asarray(moments, dtype=float)
+        vectors = np.zeros((len(m), 3))
+        if m.ndim == 1:
+            vectors[:, 2] = m
+        else:
+            vectors[:] = m
+        tolerance = 1e-3 * np.abs(vectors).max() + 1e-3
+        kept_r, kept_m, spins = [], [], []
+        for rot, amap in zip(rotations, maps):
+            candidates = [np.linalg.det(rot) * rot] if spinorb else lattice
+            for sc in candidates:
+                mapped = vectors @ sc.T
+                if np.all(np.abs(mapped - vectors[amap]) < tolerance):
+                    kept_r.append(rot)
+                    kept_m.append(amap)
+                    spins.append(sc)
+                    break
+    if nsymcrys is not None and len(kept_r) != nsymcrys:
+        raise NotImplementedError(
+            f"Elk's INFO.OUT has {nsymcrys} crystal symmetries and this module finds "
+            f"{len(kept_r)} for symtype = {symtype} and the moments of this state: "
+            "the potential would be averaged over a group Elk did not use. A template "
+            "field that the moments do not follow (bfcmt, bfieldc), a fixed tensor "
+            "moment, a field of the time-dependent runs or an elk.in that is not the "
+            "one the template ran with are not read")
     return symmetrizer(state, kept_r, kept_m, lmax, spin_matrices=spins), len(kept_r)
 
 

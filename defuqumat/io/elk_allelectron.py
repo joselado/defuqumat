@@ -264,11 +264,12 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     """
     from defuqumat.io.elk import ElkState
     from defuqumat.io.elk_potential import (crystal_symmetrizer, kohn_sham_potential,
-                                            read_elk_parameters)
+                                            read_elk_parameters, refuse_untranscribed)
 
     template = Path(template)
     base = ElkState.read(template, allow_noncollinear=True)
     params = read_elk_parameters(template)
+    refuse_untranscribed(params, base.magmt is not None)
     if core_region == "auto":
         gga = params.xctype[0] >= 20
         polarized = int(calculation.nspin_mag) > 1
@@ -390,7 +391,7 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
             "taken outright, although that one started 31 times closer; what sets the "
             "count is open (PLAN.md P181). The state is a valid start, not a faster "
             "one.", stacklevel=3)
-    symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments)
+    symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments, params=params)
     potential = kohn_sham_potential(state, params, symmetry)
     ry = {k: 2.0 * np.asarray(v) for k, v in potential.items()}
     state = dataclasses.replace(

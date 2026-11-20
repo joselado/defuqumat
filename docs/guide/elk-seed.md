@@ -160,7 +160,9 @@ the same steps as Elk: the Coulomb potential by the method of Weinert, the
 exchange-correlation potential on the angular points of Elk, and the average over
 the symmetry group of the crystal. The meshes and the parameters come from a
 template, which is any `STATE.OUT` of an Elk run of the same crystal, with its
-`INFO.OUT` and `GEOMETRY.OUT`. The cheapest template is one loop of Elk, with
+`INFO.OUT`, `GEOMETRY.OUT` and `elk.in`. The code reads a few switches from
+`elk.in`, for example `nosym` and `symtype`, which decide the symmetry group of Elk.
+The cheapest template is one loop of Elk, with
 `maxscl 1` and `nwrite 1` in `elk.in`. Without `nwrite 1`, a run of one loop does
 not write `STATE.OUT`.
 
@@ -284,7 +286,20 @@ itself needs 0.016 s.
     potential of Elk for the LDA (`xctype` 2 and 3) and for the PBE family of Elk
     (`xctype` 20, 21 and 22). A noncollinear state with PBE, a functional of
     libxc, a meta-GGA, a finite nucleus and an external magnetic field give an
-    error. We have not run a case with spin-orbit coupling through Elk. With
+    error. Some switches of Elk change its potential in a way the code does not
+    compute, so they also give an error. These are a constant electric field
+    (`tefield`) in any template, a scaled spin exchange-correlation (`sxcscf`)
+    and `nosource` in a spin-polarized template, and the smoothing of the
+    gradients in the muffin tins (`msmgmt`, which `stable` also sets) with PBE.
+    The code reads `msmgmt`, `stable` and `nosource` from `elk.in`, so without
+    `elk.in` it cannot check them and gives a warning for PBE and for a
+    spin-polarized template. The code takes the symmetry group of Elk from the
+    template, with `nosym` and `symtype` from `elk.in`, and compares its size
+    with the number of crystal symmetries in `INFO.OUT`. If the two numbers are
+    different, the code gives an error, because the potential would be averaged
+    over a group that Elk did not use. This happens, for example, when the
+    magnetic moments of the run do not follow the fields `bfcmt` of the
+    template. We have not run a case with spin-orbit coupling through Elk. With
     k-point pools (`DEFUQUMAT_POOLS`) `write_elk_state` gives an error, because
     every pool would write the same `STATE.OUT` at the same time.
 

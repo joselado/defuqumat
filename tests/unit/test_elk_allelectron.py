@@ -197,6 +197,75 @@ def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
         calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
 
 
+@lru_cache(maxsize=1)
+def _one_iteration():
+    calc = _calculator()
+    return calc, calc.get_scf(max_iterations=1)
+
+
+def _template_with(tmp_path, elk_in, nsymcrys):
+    """A copy of the Si2 template with ``elk_in`` appended and INFO.OUT's count edited."""
+    import re
+    import shutil
+
+    directory = tmp_path / "template"
+    shutil.copytree(TEMPLATE, directory)
+    with open(directory / "elk.in", "a") as handle:
+        handle.write(elk_in)
+    info = (directory / "INFO.OUT").read_text()
+    info = re.sub(r"(Number of crystal symmetries\s*:\s*)\d+", rf"\g<1>{nsymcrys:4d}", info)
+    (directory / "INFO.OUT").write_text(info)
+    return directory
+
+
+def _write_on(tmp_path, template):
+    import shutil
+
+    calc, result = _one_iteration()
+    out = tmp_path / "out"
+    calc.write_elk_state(out, template, result)
+    shutil.copy(template / "GEOMETRY.OUT", out)
+    return ElkState.read(out)
+
+
+def test_a_group_elk_did_not_use_is_refused(tmp_path):
+    """INFO.OUT says 24 operations and elk.in says symtype 1: the two disagree."""
+    template = _template_with(tmp_path, "", 24)
+    with pytest.raises(NotImplementedError, match="24 crystal symmetries"):
+        _write_on(tmp_path, template)
+
+
+def test_nosym_writes_the_potential_without_the_group_average(tmp_path):
+    """``nosym``: Elk 11.0.2 prints 1 crystal symmetry for Si2, and ``symrfmt`` is then the identity.
+
+    The 48-operation average moves ``vxcmt`` by more than 1e-6 in the channels
+    the site symmetry forbids, so this tells the two apart.
+    """
+    template = _template_with(tmp_path, "\nnosym\n  .true.\n", 1)
+    state = _write_on(tmp_path, template)
+    params = read_elk_parameters(template)
+    assert (params.symtype, params.nsymcrys) == (0, 1)
+    bare = kohn_sham_potential(state, params, None)
+    nr = state.nrmt[0]
+    # The identity alone is still a quadrature of Y_lm Y_lm': 1.6e-13 on a 45 Ha scale.
+    np.testing.assert_allclose(bare["vxcmt"][:, :nr], state.vxcmt[:, :nr] / 2.0, atol=1e-12)
+    averaged = kohn_sham_potential(state, params, crystal_symmetrizer(state, params.lmaxo)[0])
+    assert np.abs(averaged["vxcmt"][:, :nr] - bare["vxcmt"][:, :nr]).max() > 1e-6
+
+
+def test_symtype_2_takes_the_operations_without_a_translation(tmp_path):
+    """``symtype 2``: Elk 11.0.2 prints 24 for Si2, the point group of the first atom."""
+    template = _template_with(tmp_path, "\nsymtype\n  2\n", 24)
+    state = _write_on(tmp_path, template)
+    params = read_elk_parameters(template)
+    symmetry, nsym = crystal_symmetrizer(state, params.lmaxo, params=params)
+    assert nsym == 24
+    potential = kohn_sham_potential(state, params, symmetry)
+    nr = state.nrmt[0]
+    np.testing.assert_allclose(potential["vxcmt"][:, :nr], state.vxcmt[:, :nr] / 2.0,
+                               atol=1e-13)
+
+
 O2 = """&control
  calculation='scf'
 /
