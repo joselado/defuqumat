@@ -327,6 +327,14 @@ takes 89 s on one core.
     not have the symmetry of the crystal. Use an unshifted mesh, as here, or let
     the code use the symmetry.
 
+    With a PAW dataset, the Raman tensors and the spectra give an error on a
+    symmetry-reduced k-mesh. The one-centre terms of PAW are then built from the
+    occupations of the k-points in the reduced mesh, which are not the ones of
+    the whole zone, and the symmetrisation at the end does not repair this. On
+    PAW silicon the Raman tensor has a relative error of 1.8e-5 against the
+    whole mesh. So with PAW you run the whole mesh, an unshifted mesh with
+    `nosym`. Norm-conserving and ultrasoft datasets work on the reduced mesh.
+
     The second-order susceptibility $\chi^{(2)}$ and the electro-optic tensor
     give an error. They need one term that the code does not compute, and this
     term is 42 per cent of the answer.

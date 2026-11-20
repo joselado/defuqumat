@@ -168,6 +168,7 @@ from defuqumat.response.strain import (
 )
 from defuqumat.response.velocity import VelocityOperator, over_kpoints
 from defuqumat.scf.density import sum_band
+from defuqumat.system.kpoints import covers_a_whole_grid
 from defuqumat.units import EPSILON0_SI, FPI
 from defuqumat.eager import compiled, compiled_jvp
 
@@ -175,6 +176,7 @@ __all__ = [
     "Electrostriction",
     "electrostriction",
     "require_converged_responses",
+    "require_a_whole_grid_for_paw",
     "refined_states",
     "second_order_energy",
     "susceptibility_strain_derivative",
@@ -927,6 +929,59 @@ def require_converged_responses(field, strain) -> None:
         )
 
 
+def require_a_whole_grid_for_paw(calculation, what: str) -> None:
+    """Refuse a PAW third derivative on a symmetry-reduced k-set (audit 2026-11-20c #2).
+
+    :func:`_second_order_energy_at` builds PAW's one-centre coefficients ``D``
+    from :func:`~defuqumat.response.strain.mixed_becsum`, the raw sum over the
+    k-points the run holds, and :func:`_position_response` builds the operator
+    ``db`` is solved with the same way. On a wedge that sum is wrong twice.
+
+    * **In value**: it is not the ground state's ``becsum``, which is its
+      group average (``PAW_symmetrize``). On PAW silicon's three-point wedge
+      (``si-epsilon-paw-unshifted.in``) the two are 0.188 apart, so the ``H``
+      inside ``F`` is not the ``H`` the states diagonalise, and ``F`` misses
+      ``dielec.f90``'s dielectric constant by 3.1e-4 relative, against 2.3e-10
+      on the same grid run whole (``-nosym``).
+    * **In its derivative**: ``dD`` along the coordinate is then built from a
+      raw wedge ``dbecsum``, and it multiplies a raw wedge sum of ``u`` (the
+      band terms and the right-hand side of ``db``). A product of two
+      incomplete sums is not completed by the average of the assembled tensor,
+      which is the screening term's trap in a second place.
+
+    Measured against the whole grid on the same 32^3 grid (``tr2 = 1e-24``,
+    ``threshold = 1e-12``, both routes): the Raman tensor is 1.8e-5 off and
+    ``d(eps)/dx`` 6.5e-4 (``d(eps_00)/dx_00`` 124.2155 against 124.0773).
+    Averaging the value alone, with the raw tangent, closes the identity above
+    to 2.3e-10 and leaves the Raman tensor 9.5e-5 off and ``d(eps)/dx``
+    1.6e-4. With the value averaged **and** the tangent of ``becsum`` taken
+    full-zone (the coordinate's ``PAW_dusymmetrize``), the Raman tensor
+    reproduces the whole grid to 2.0e-13. That is the fix, at three sites and
+    for two coordinates; it is not written (``notes/AUDIT-2026-11-20c.md``,
+    the fix log of #2).
+
+    Not refused: a whole grid with symmetry on, where the raw sum is the
+    full-zone one; ultrasoft, which has no one-centre ``D``; and a run with
+    no group average of ``becsum`` (``nsym = 1``).
+    """
+    if calculation.paw is None or getattr(calculation, "_becsum_symmetry",
+                                          None) is None:
+        return
+    if covers_a_whole_grid(calculation.system.kpoints, calculation.system.cell):
+        return
+    raise NotImplementedError(
+        f"{what} of a PAW dataset on a symmetry-reduced k-set is not "
+        "implemented: the second-order energy builds the one-centre "
+        "coefficients D from the becsum of the k-points the run holds, which "
+        "on a wedge is not the ground state's becsum, and whose derivative is "
+        "a wedge sum that the final symmetrisation does not complete. On PAW "
+        "silicon's three-point wedge the Raman tensor is 1.8e-5 and "
+        "d(eps)/d(strain) 6.5e-4 off the whole grid (audit 2026-11-20c #2). Run "
+        "the whole grid: an unshifted Monkhorst-Pack grid with nosym, as "
+        "si-epsilon-paw-unshifted-nosym.in does"
+    )
+
+
 def electrostriction(
     calculation,
     result,
@@ -944,7 +999,8 @@ def electrostriction(
             wedge sum is completed by
             :func:`~defuqumat.system.symmetry.symmetrize_cartesian_tensor` -- and
             is refused when ``elastic`` is on, for the different reason
-            :func:`_require_closed_for_elastic` gives.
+            :func:`_require_closed_for_elastic` gives, and for a PAW dataset
+            whatever ``elastic`` is (:func:`require_a_whole_grid_for_paw`).
         result: the converged :class:`~defuqumat.scf.driver.SCFResult`. Its
             states are re-diagonalised first (:func:`refined_states`).
         strain: a strain response computed earlier, if there is one. Recomputed
@@ -967,6 +1023,7 @@ def electrostriction(
     """
     require_a_symmetrisable_response(calculation)
     require_a_sternheimer_regime(calculation)
+    require_a_whole_grid_for_paw(calculation, "the electrostriction")
     if elastic:
         # **The two halves of this function are refused for different reasons,
         # and only one of them has been lifted.** The elasto-optic tensor needed
@@ -1216,7 +1273,8 @@ def _require_closed_for_elastic(calculation) -> None:
     (:func:`~defuqumat.system.symmetry.symmetrize_cartesian_tensor`, ``symmatrix3``
     at any rank), so the elasto-optic tensor and P35's Raman tensors run on a
     wedge and are checked against the closed-grid numbers they were validated
-    with.
+    with. Not on a PAW dataset, for a third reason
+    (:func:`require_a_whole_grid_for_paw`), which is checked first.
 
     The elastic constants are a separate refusal with a separate cause, which is
     why lifting the first did not lift this one:
