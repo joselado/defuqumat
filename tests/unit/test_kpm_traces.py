@@ -322,7 +322,7 @@ def test_an_explicit_wedge_is_refused_and_an_explicit_whole_grid_is_kept():
     from types import SimpleNamespace
 
     from defuqumat.kpm.traces import whole_grid_calculation
-    from defuqumat.system.kpoints import KPoints, covers_a_whole_grid, is_reduced
+    from defuqumat.system.kpoints import KPoints, is_reduced
 
     cell = _fcc_cell()
     identity = np.eye(3, dtype=int)[None]
@@ -341,9 +341,11 @@ def test_an_explicit_wedge_is_refused_and_an_explicit_whole_grid_is_kept():
     assert is_reduced(unequal) and not is_reduced(equal)
     assert not (unequal.reduced or equal.reduced) and unequal.grid is equal.grid is None
     for wedge in (unequal, equal):
-        assert not covers_a_whole_grid(wedge, cell)
         with pytest.raises(ValueError, match="not a whole grid"):
             whole_grid_calculation(calculation(wedge)[0])
+    from defuqumat.system.kpoints import covers_a_whole_grid
+
+    assert not covers_a_whole_grid(unequal, cell) and not covers_a_whole_grid(equal, cell)
     for mesh, shift in (((2, 2, 2), (1, 1, 1)), ((3, 3, 1), (0, 0, 1)), ((1, 1, 1), (0, 0, 0))):
         whole = written_out(KPoints.automatic(mesh, shift, cell))
         assert covers_a_whole_grid(whole, cell), (mesh, shift)
