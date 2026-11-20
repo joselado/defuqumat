@@ -323,6 +323,16 @@ the plateau can change on a denser mesh or with a smaller `degauss`.
     each other, so for the magnetization you keep every member with
     `reduce=False`.
 
+    The structure factors of a spin spiral give an error. The code keeps the
+    transverse magnetization of a spiral in the frame that turns with
+    $\mathbf q$. In the laboratory frame, which neutrons see, this
+    magnetization sits on the satellites $\mathbf H \pm \mathbf q$ and not on
+    the reflections $\mathbf H$ of the table. On the hydrogen chain of
+    [Spin spirals](spirals.md), the turning frame gives 0.54 Bohr magnetons at
+    $\mathbf H = 0$, which looks like a ferromagnet, while the laboratory value
+    there is zero. For a commensurate $\mathbf q$ you can unfold the density
+    onto its supercell with `unfold_spiral_density` and transform that.
+
     The nesting function gives an error for a run with fixed occupations
     (`occupations = 'fixed'` or `'from_input'`), which has no Fermi level, also
     when it has `tot_magnetization`. With a smearing, a run with

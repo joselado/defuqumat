@@ -26,6 +26,21 @@ reversal are dropped from it along with the non-symmorphic ones (Elk tests
 right; it does not make the star flat, because a magnetization is an axial
 vector and its members are related by ``det(R) R``. Use ``reduce = False``
 where every member is wanted.
+
+**A spin spiral is refused** (audit 2026-11-20c #8). Its transverse pair is
+stored in the frame that turns with ``q`` (``scf/density.py``), and in the
+laboratory frame, the one a neutron sees, it sits on the satellites
+``H -/+ q`` and has no component at a reflection ``H`` unless ``q`` is a
+reciprocal lattice vector. Measured on ``docs/figures/spirals_eq/h-chain.in``
+(``q = b3/4``): the turning frame gives ``F_x(000) = 0.5397`` Bohr magnetons a
+cell, which reads as a ferromagnet, where the laboratory density unfolded on
+the four-cell supercell has zero at ``(000)`` and ``(001)`` and 0.2699 a cell on
+each satellite ``(0 0 -/+1/4)``, half of 0.5397. Reporting the satellites is a
+relabelling of the turning-frame columns, ``F_x(H -/+ q) = (F_x'(H) -/+ i
+F_y'(H))/2`` in this transform's sign, which the same supercell gives at
+``(0 0 1 -/+ 1/4)`` to the 1e-6 it was printed at (0.19203 and 0.10258 a cell),
+but it needs a table indexed by ``H -/+ q`` that :class:`StructureFactors` does
+not have.
 """
 
 from __future__ import annotations
@@ -40,7 +55,7 @@ from defuqumat.diffraction.structure_factor import (
     structure_factors_of_field,
 )
 
-__all__ = ["run_structure_factors"]
+__all__ = ["run_structure_factors", "refuse_a_spiral"]
 
 
 def run_structure_factors(
@@ -90,6 +105,7 @@ def run_structure_factors(
 
     Returns a :class:`~defuqumat.diffraction.structure_factor.StructureFactors`.
     """
+    refuse_a_spiral(system)
     density = np.asarray(result.density if window is None else
                          _windowed_density(system, pseudos, result, window, k_batch,
                                            calculation))
@@ -120,6 +136,25 @@ def run_structure_factors(
         window=None if window is None else (float(window[0]), float(window[1])),
         core_included=bool(core),
     )
+
+
+def refuse_a_spiral(system) -> None:
+    """A spin spiral's magnetic structure factors are not at the reflections ``H``.
+
+    The stored transverse pair turns with ``q``; the laboratory one is on the
+    satellites ``H -/+ q``, which the table here cannot index. See the module
+    docstring for the measured case.
+    """
+    if getattr(system, "spiral", False):
+        raise NotImplementedError(
+            "the structure factors of a spin spiral are refused: its transverse "
+            "magnetization is stored in the frame that turns with spiral_q, and in "
+            "the laboratory frame, which neutron diffraction sees, it sits on the "
+            "satellites H - q and H + q, not on the reflections H reported here. "
+            "For a commensurate q, unfold the density onto the supercell it repeats "
+            "in (workflows.spiral.unfold_spiral_density) and transform that with "
+            "diffraction.structure_factor.structure_factors_of_field"
+        )
 
 
 def _magnetization_field(density):

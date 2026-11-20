@@ -1811,7 +1811,10 @@ class Calculator:
         spherical part of every atom cancels and what is left is the bonding
         charge the pseudopotential keeps.
         """
-        from defuqumat.workflows.sfac import run_structure_factors
+        from defuqumat.workflows.sfac import refuse_a_spiral, run_structure_factors
+
+        # before the SCF, which a refused spiral would pay for (audit 2026-11-20c #8)
+        refuse_a_spiral(self.system)
 
         result = self._ground_state("structure factors")
         return run_structure_factors(
