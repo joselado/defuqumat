@@ -434,3 +434,51 @@ def test_a_spin_orbit_state_at_another_soc_scale_is_written_with_a_warning(scale
         pseudo_dir=PSEUDO).system
     assert system.lspinorb is True and system.soc_scale == 1.0
     assert system.with_soc_scale(0.0).soc_scale == 0.0
+
+
+def _with_repeat_counts(text: str) -> str:
+    """The same list-directed numbers, with every run of equal values written ``r*c``."""
+    import re
+
+    tokens = re.findall(r"\([^)]*\)|[^\s()]+", text)
+    runs = []
+    for token in tokens:
+        key = token.replace(" ", "")
+        if runs and runs[-1][0] == key:
+            runs[-1][1] += 1
+        else:
+            runs.append([key, 1])
+    return "\n".join(f"{n}*{value}" if n > 1 else value for value, n in runs) + "\n"
+
+
+@pytest.mark.parametrize("name, kind", [
+    ("pt2-paw-soc", "paw.txt"), ("o2-paw-noncol", "paw.txt"),
+    ("ni-ldau-lsda", "occup.txt"), ("ni-ldau-tilt", "occup.txt"),
+])
+def test_list_directed_repeat_counts_are_read(tmp_path, name, kind):
+    """``r*c`` in ``paw.txt`` and ``occup.txt`` reads as ``r`` copies of ``c`` (audit 2026-11-20 #48).
+
+    A list-directed ``WRITE`` may give a run of equal values that way, and these
+    files are full of exact zeros. ``pw.x``'s own files (gfortran) are rewritten
+    with every run compressed, and the arrays read must be the same to the bit,
+    real and ``(re,im)`` complex alike. The old reader raised on ``16*0.0``.
+    The Ni files hold no two equal values, so eight zeros are added to both
+    forms there, as a non-Hubbard atom would add them.
+    """
+    source = Path(__file__).resolve().parents[1] / "data" / "qe" / "save" / name
+    original = (source / kind).read_text()
+    if kind == "occup.txt":
+        zero = "(0.0000000000000000,0.0000000000000000)" if "(" in original else "0.0000000000000000"
+        original += " ".join([zero] * 8) + "\n"
+    compressed = _with_repeat_counts(original)
+    assert "*" in compressed
+    folders = []
+    for label, text in (("plain", original), ("compressed", compressed)):
+        folder = tmp_path / label
+        shutil.copytree(source, folder)
+        (folder / kind).write_text(text)
+        folders.append(folder)
+    expected, read = QESave.read(folders[0]), QESave.read(folders[1])
+    attribute = "becsum" if kind == "paw.txt" else "occupations"
+    assert np.array_equal(getattr(read, attribute), getattr(expected, attribute))
+    assert getattr(read, attribute).dtype == getattr(expected, attribute).dtype

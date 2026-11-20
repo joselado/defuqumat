@@ -144,11 +144,28 @@ def _floats(element) -> np.ndarray:
 
 
 def _read_list_directed(text: str) -> np.ndarray:
-    """A list-directed Fortran file of reals, or of ``(re,im)`` complex pairs."""
+    """A list-directed Fortran file of reals, or of ``(re,im)`` complex pairs.
+
+    A list-directed ``WRITE`` may give a run of equal values as ``r*c``, for
+    example ``16*0.0`` or ``2*(0.0,0.0)``, and ``paw.txt`` and ``occup.txt``
+    are full of exact zeros. gfortran does not write that form; it is expanded
+    here so a file from a compiler that does is read too (audit 2026-11-20
+    #48). That such a ``pw.x`` file reads right was not checked: there is no
+    such compiler on this machine.
+    """
+    import re
+
+    text = text.replace("D", "E").replace("d", "e")
     if "(" not in text:
-        return np.array(text.replace("D", "E").replace("d", "e").split(), dtype=float)
-    pairs = text.replace("D", "E").replace("d", "e").replace(")", " ").split("(")[1:]
-    values = [complex(*map(float, pair.split(",")[:2])) for pair in pairs]
+        values = []
+        for token in text.replace(",", " ").split():
+            count, star, value = token.rpartition("*")
+            values.extend([float(value)] * (int(count) if star else 1))
+        return np.array(values, dtype=float)
+    values = []
+    for count, pair in re.findall(r"(?:(\d+)\s*\*\s*)?\(([^)]*)\)", text):
+        value = complex(*map(float, pair.split(",")[:2]))
+        values.extend([value] * (int(count) if count else 1))
     return np.array(values, dtype=complex)
 
 
@@ -238,7 +255,7 @@ def read_qe_save(directory) -> QESave:
 
     becsum = None
     if (directory / "paw.txt").exists():
-        becsum = np.array((directory / "paw.txt").read_text().split(), dtype=float)
+        becsum = _read_list_directed((directory / "paw.txt").read_text())
     occupations = None
     if (directory / "occup.txt").exists():
         occupations = _read_list_directed((directory / "occup.txt").read_text())
