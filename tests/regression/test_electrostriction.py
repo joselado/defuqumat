@@ -237,12 +237,13 @@ def test_the_paw_deformation_potential_matches_a_finite_difference():
     re-diagonalised; a width rather than one band, because one band carries the
     ``G = 0`` constant of an absolute deformation potential. Measured: -0.5218892
     against -0.5218925, 6.4e-6 relative, where without ``dD`` it was -0.5205959,
-    2.5e-3. The per-k trace of ``deigenvalues`` against ``tr(dLambda)/w`` was
-    1.7e-2 apart without it and is round-off with it.
+    2.5e-3. (On the whole-k route the per-k trace of ``deigenvalues`` against
+    ``tr(dLambda)/w`` was also measured, 1.7e-2 apart without ``dD`` and 8.9e-16
+    with it; the default route here walks and writes no ``dLambda``.)
     """
     case, step = "si-paw-nosym", 3e-3
     response = _strain(case)
-    _, _, calculation, result, eigenvalues, _ = _converged(case)
+    _, _, calculation, _, _, _ = _converged(case)
 
     def width(energies):
         energies = np.asarray(energies)
@@ -259,16 +260,6 @@ def test_the_paw_deformation_potential_matches_a_finite_difference():
     shifts = np.asarray(response.deigenvalues)[0, 0]
     analytic = shifts[0, 0, 1:4].mean() - shifts[0, 0, 0]
     assert abs(analytic - reference) < 1e-4 * abs(reference)
-
-    weights = np.asarray(calculation.occupations(
-        eigenvalues if eigenvalues.ndim == 3 else eigenvalues[None])[0])
-    nocc = shifts.shape[-1]
-    for a in range(3):
-        for b in range(3):
-            multipliers = np.asarray(response.multipliers[a, b])
-            trace = np.einsum("sknn->skn", multipliers).real / weights[..., :nocc]
-            assert np.abs(trace.sum(-1)
-                          - np.asarray(response.deigenvalues)[a, b].sum(-1)).max() < 1e-10
 
 
 def test_the_strain_response_converges():
