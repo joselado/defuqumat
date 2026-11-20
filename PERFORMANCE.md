@@ -11863,9 +11863,9 @@ on one more call:
 | `pz`, 1 (no `bias`) | 0.165, 0.120 | 0.120, 0.119 | 2.6 MB | 2.6 MB |
 
 The one-energy rows are medians of 15, two runs of each arm alternated, because at this size a run
-lands at about 0.12 s or about 0.165 s for the same work (`pz` read 0.118 and 0.166 in two runs of
-the new arm, 0.165 and 0.120 of the old); the pairs that agree are the measurement, and at one
-energy the two routes cost the same. There the peak grows for `p`, since its 9 basis Grams replace 3
+lands at about 0.12 s or about 0.165 s for the same work (with 5 samples `pz` read 0.118 in the
+old arm and 0.166 and 0.159 in two runs of the new one; with 15, 0.165 and 0.120 old, 0.120 and 0.119
+new); the pairs that agree are the measurement, and at one energy the two routes cost the same. There the peak grows for `p`, since its 9 basis Grams replace 3
 channel Grams. The peak no longer grows with the energies. The audit's case (`p`, 21 energies, 900 k-points, 60 bands)
 held 3.3 GB of Grams before and holds 9 x 900 x 60^2 x 16 B = 0.47 GB of basis Grams now. On 27 cases of
 the hydrogen sheet and its spinor (`pz`, `pxy`, `p`, `CO`, `s - pz`, `dz2`, raw and continued, no
