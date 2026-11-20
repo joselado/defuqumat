@@ -466,7 +466,12 @@ diagonalize.
 
     The tetrahedron schemes need an automatic k-mesh. If you do not give `grid`
     and the SCF used an explicit list of k-points, tetrahedra give an error,
-    because a list of points carries no tetrahedra.
+    because a list of points carries no tetrahedra. They also need the k-points
+    that the symmetry of the run keeps of that mesh, as `grid=` builds them. A
+    set of k-points you build yourself and pass as `kpoints=`, or give to
+    `with_kpoints`, gives an error if it is another set. For example, the
+    whole mesh on a run with symmetry gives an error, and for the whole mesh you
+    set `nosym = .true.`. This is the check that `pw.x` makes too.
 
     A noncollinear run is symmetrized, with the spin rotated together with the
     orbitals. A spin-orbit run (`lspinorb`) is symmetrized too when it is not

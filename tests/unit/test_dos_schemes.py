@@ -294,6 +294,8 @@ def test_the_projected_dos_folds_its_tetrahedra_with_the_runs_group(case, extra)
     pdos = _projection_tetrahedra("tetrahedra", system.kpoints, crystal, system.cell,
                                   system.grid_symmetry())
     np.testing.assert_array_equal(np.asarray(pdos.corners), np.asarray(dos.corners))
-    stale = _projection_tetrahedra("tetrahedra", system.kpoints, crystal, system.cell)
-    assert not np.array_equal(np.asarray(stale.corners), np.asarray(dos.corners)), (
-        "the old call must differ on this cell, or the test is a null")
+    # The old call, with the crystal's group and time reversal on, folded the
+    # corners onto another list in silence. The list is now checked against
+    # the fold, so the old call is refused (audit 2026-11-20c #1).
+    with pytest.raises(ValueError, match="cannot remap grid"):
+        _projection_tetrahedra("tetrahedra", system.kpoints, crystal, system.cell)

@@ -53,6 +53,7 @@ __all__ = [
     "TETRAHEDRON_KINDS",
     "tetrahedron_kind",
     "build_tetrahedra",
+    "folded_grid",
     "tetrahedra_for",
     "tetrahedron_occupations",
     "tetrahedron_occupations_spin",
@@ -226,6 +227,7 @@ def build_tetrahedra(
     time_reversal: bool = True,
     t_rev: np.ndarray | None = None,
     precision: Precision = DEFAULT_PRECISION,
+    equiv: np.ndarray | None = None,
 ) -> Tetrahedra:
     """Cut the Monkhorst-Pack grid into tetrahedra and index them into the IBZ.
 
@@ -244,9 +246,13 @@ def build_tetrahedra(
             here are the unpolarised non-``nosym`` case and nothing else.
         bg: reciprocal lattice vectors as rows; only their relative lengths
             matter, and only for the optimised/linear shaft choice.
+        equiv: the fold of the grid onto the reduced list, when the caller
+            has already built it from the same triple and checked it against
+            the list (:func:`folded_grid`); ``None`` builds it here.
     """
     nk1, nk2, nk3 = (int(n) for n in grid)
-    equiv = grid_equivalence(grid, shift, rotations, time_reversal, t_rev)
+    if equiv is None:
+        equiv = grid_equivalence(grid, shift, rotations, time_reversal, t_rev)
 
     if kind == "bloechl":
         offsets = np.broadcast_to(_CUBE[_BLOECHL_TETRAHEDRA], (6, 4, 3))
@@ -299,6 +305,50 @@ def tetrahedra_for(occupations, kpoints, symmetries, cell,
     same statement and the one ``grid_equivalence`` understands. Omitting the
     argument keeps the group as given with time reversal on, which is the
     unpolarised symmetric case and nothing else.
+
+    **The list itself is checked against that fold** (:func:`folded_grid`), so
+    a k-set that carries a grid but was not reduced with this triple is
+    refused rather than indexed.
+    """
+    grid, shift, rotations, time_reversal, t_rev, equiv = folded_grid(
+        kpoints, symmetries, cell, grid_symmetry)
+    return build_tetrahedra(
+        tetrahedron_kind(occupations), grid, shift, rotations,
+        np.asarray(cell.bg_2pi_alat), time_reversal=time_reversal, t_rev=t_rev,
+        precision=kpoints.precision, equiv=equiv,
+    )
+
+
+#: How far, in crystal units, a listed k-point may sit from the grid point it
+#: stands for in :func:`folded_grid`. Far above single precision and a printed
+#: list (about 1e-7), far below the spacing ``1/n`` of any grid in use.
+_LIST_TOL = 1.0e-5
+
+
+def folded_grid(kpoints, symmetries, cell, grid_symmetry=None):
+    """``(grid, shift, rotations, time_reversal, t_rev, equiv)`` for a k-set's tetrahedra.
+
+    The triple is resolved as :func:`tetrahedra_for` describes, ``equiv`` is
+    :func:`~defuqumat.system.kpoints.grid_equivalence` of it, and **the list
+    is checked against the fold**: it must hold, in order, the
+    representatives the triple keeps of the whole grid, which is the list
+    :meth:`~defuqumat.system.kpoints.KPoints.automatic` builds from the same
+    triple. ``equiv`` indexes that list and no other, so a k-set that carries
+    a grid but was reduced with another group, or not reduced at all, put
+    every corner on the wrong point and nothing raised. Two ways in (audit
+    2026-11-20c #1): the unreduced ``KPoints.automatic(grid, shift, cell)``
+    handed to a symmetric run (``Calculator.with_kpoints``, or ``kpoints=`` of
+    ``get_dos``, ``get_pdos`` and ``get_nscf``), where the corners spanned the
+    first ``nirr`` points of the whole list and the others had zero weight;
+    and a list reduced with time reversal handed to a ``nosym`` or ``noinv``
+    run, where ``equiv`` ran past the list and JAX clamped the gather.
+
+    ``tetra_init`` and ``opt_tetra_init`` (``PW/src/tetra.f90:131-173``,
+    ``:455-490``) make the same check by matching each grid point against the
+    actual ``xk`` list, and stop with "cannot locate k point" or "cannot remap
+    grid on k-point list". A whole grid on a run with symmetry stops there too,
+    since a grid point is matched to the first listed member of its orbit and
+    the others are never reached.
     """
     if kpoints.grid is None:
         raise ValueError(
@@ -311,16 +361,35 @@ def tetrahedra_for(occupations, kpoints, symmetries, cell,
         rotations, time_reversal, t_rev = grid_symmetry
         if rotations is None:
             rotations, time_reversal, t_rev = np.eye(3, dtype=int)[None], False, None
-    return build_tetrahedra(
-        tetrahedron_kind(occupations),
-        kpoints.grid,
-        kpoints.shift or (0, 0, 0),
-        rotations,
-        np.asarray(cell.bg_2pi_alat),
-        time_reversal=time_reversal,
-        t_rev=t_rev,
-        precision=kpoints.precision,
-    )
+    grid = tuple(int(n) for n in kpoints.grid)
+    shift = tuple(int(s) for s in (kpoints.shift or (0, 0, 0)))
+    equiv = grid_equivalence(grid, shift, rotations, time_reversal, t_rev)
+
+    # The representative of irreducible point p is the first grid point that
+    # folds onto it, which is the one ``irreducible_wedge`` keeps.
+    i, j, k = np.meshgrid(*(np.arange(n) for n in grid), indexing="ij")
+    integers = np.stack([i.ravel(), j.ravel(), k.ravel()], axis=1)
+    xkg = (integers + np.asarray(shift) / 2.0) / np.asarray(grid)
+    representatives = xkg[np.unique(equiv, return_index=True)[1]]
+    listed = np.asarray(kpoints.crystal(cell), dtype=float).reshape(-1, 3)
+    same = len(listed) == len(representatives)
+    if same:
+        difference = listed - representatives
+        same = bool(np.all(np.abs(difference - np.rint(difference)) < _LIST_TOL))
+    if not same:
+        nsym = len(rotations)
+        raise ValueError(
+            f"the tetrahedra cannot remap the {grid} grid on this k-point list "
+            f"(tetra.f90's 'cannot remap grid on k-point list'): the run's "
+            f"group ({nsym} operation{'s' if nsym != 1 else ''}, time reversal "
+            f"{'on' if time_reversal else 'off'}) folds the grid onto "
+            f"{len(representatives)} points, and this list has {len(listed)} "
+            "points that are not those. The corners would index the wrong "
+            "eigenvalues. Use the run's own k-set or one built with its group "
+            "(K_POINTS automatic, or the grid= argument of the DOS and PDOS); "
+            "for the whole grid, set nosym = .true."
+        )
+    return grid, shift, rotations, time_reversal, t_rev, equiv
 
 
 # --------------------------------------------------------------------------

@@ -51,7 +51,7 @@ from defuqumat.projwfc.channels import L_LABELS, M_LABELS, AtomicChannel, projec
 from defuqumat.projwfc.projections import atomic_projections, calculation_channels
 from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation
-from defuqumat.scf.tetrahedra import build_tetrahedra, tetrahedron_kind
+from defuqumat.scf.tetrahedra import build_tetrahedra, folded_grid, tetrahedron_kind
 from defuqumat.system.builder import System
 from defuqumat.system.kpoints import KPoints
 from defuqumat.units import RY_TO_EV
@@ -590,28 +590,22 @@ def _projection_tetrahedra(scheme: str, kpoints: KPoints, symmetries, cell,
     2): Bloechl fixes one body diagonal, and the linear and optimised methods
     pick the shortest of the four.
     """
-    if kpoints.grid is None:
-        raise ValueError(
-            "the tetrahedron method needs an automatic k-point grid "
-            "(K_POINTS automatic); an explicit list carries no tetrahedra"
-        )
     kind = tetrahedron_kind(scheme)
     kind = "linear" if kind == "bloechl" else kind
-    if grid_symmetry is None:
-        rotations, time_reversal, t_rev = symmetries.rotation_array(), True, None
-    else:
-        rotations, time_reversal, t_rev = grid_symmetry
-        if rotations is None:
-            rotations, time_reversal, t_rev = np.eye(3, dtype=int)[None], False, None
+    # The triple resolved, and the list checked against its fold, as for the
+    # DOS (audit 2026-11-20c #1).
+    grid, shift, rotations, time_reversal, t_rev, equiv = folded_grid(
+        kpoints, symmetries, cell, grid_symmetry)
     return build_tetrahedra(
         kind,
-        kpoints.grid,
-        kpoints.shift or (0, 0, 0),
+        grid,
+        shift,
         rotations,
         np.asarray(cell.bg_2pi_alat),
         time_reversal=time_reversal,
         t_rev=t_rev,
         precision=kpoints.precision,
+        equiv=equiv,
     )
 
 
