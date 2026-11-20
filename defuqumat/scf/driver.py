@@ -3003,7 +3003,7 @@ class Calculation:
         # tuple, which compares and hashes on the host; what crosses a ``jit``
         # boundary is the array :meth:`_axis_argument` builds from it.
         axis = (
-            fixed_quantization_axis(system.local_moments, system.b_field)
+            self._compute_ux()
             if self.nspin_mag == 4 and not self.spiral else None
         )
         self.quantization_axis = None if axis is None else tuple(float(v) for v in axis)
@@ -4497,7 +4497,7 @@ class Calculation:
         moved.system = system
         # The constructor's three readings of the texture, in its words.
         axis = (
-            fixed_quantization_axis(system.local_moments, system.b_field)
+            moved._compute_ux()
             if self.nspin_mag == 4 and not self.spiral else None
         )
         moved.quantization_axis = None if axis is None else tuple(float(v) for v in axis)
@@ -6422,39 +6422,29 @@ class Calculation:
         under ``'atomic'`` with a value at or above 1 the two codes aim at
         targets a factor ``zv`` apart, and the warning below names it.
         """
-        ntyp = self.system.structure.ntyp
-        values = np.zeros(ntyp)
-        given = np.asarray(self.system.starting_magnetization, dtype=float)
-        values[: given.size] = given[:ntyp]
-        if np.any(np.abs(values) >= 1.0):
-            valence = np.array(
-                [float(self.pseudos[t].z_valence) for t in range(ntyp)]
-            )
-            divided = values / valence
-            # The 'atomic' target stays undivided (see the docstring), so the
-            # sentence that says this run does the same must not cover it.
-            target = (
-                " The 'atomic' constraint target is the exception: it is the "
-                "number written, in Bohr magnetons, where pw.x aims at the "
-                "divided value, a factor of the valence charge smaller."
-                if self.system.constrained_magnetization == "atomic" else ""
-            )
-            warnings.warn(
-                f"starting_magnetization {np.round(values, 6).tolist()} has an "
-                f"entry at or above 1, so pw.x reads the whole set as Bohr "
-                f"magnetons and divides every species by its valence charge "
-                f"({valence.tolist()}), giving {np.round(divided, 6).tolist()} as the "
-                f"fraction of the valence charge each atom is polarised by "
-                f"(input.f90:1482). This run does the same for the starting "
-                f"guess.{target} If you meant a fraction, write a value below 1",
-                stacklevel=2,
-            )
-            values = divided
-        if self.system.constrained_magnetization == "none":
-            # ``input.f90:1510-1514``, inside ``CASE('none')`` exactly as here.
-            # A magnitude above 1 would otherwise seed a negative channel.
-            values = np.clip(values, -1.0, 1.0)
-        return values
+        return _starting_magnetization(self.system, self.pseudos, warn=True)
+
+    def _compute_ux(self):
+        """``compute_ux`` on this system: :func:`~defuqumat.scf.potential.fixed_quantization_axis` of ``m_loc``.
+
+        ``m_loc`` as ``setup.f90`` builds it for ``compute_ux``: each species'
+        ``starting_magnetization`` in ``pw.x``'s units, after the ``zv``
+        division and the clamp (:attr:`starting_magnetization`, whose warning is
+        about the starting guess and is not repeated here), times its direction.
+        ``compute_ux``'s parallel test is on these lengths, so the raw input
+        values of :attr:`System.local_moments` would not do once any species is
+        written in Bohr magnetons (AUDIT-2026-11-20b #4). A ``STARTING_MOMENTS``
+        card is handed over as it is, with ``card`` set. ``B_field`` is read
+        when no atom has a moment, as the function says.
+        """
+        system = self.system
+        if len(getattr(system, "starting_moments", ())):
+            return fixed_quantization_axis(system.local_moments, system.b_field,
+                                           card=True)
+        types = np.asarray(system.structure.types, dtype=int)
+        magnitudes = _starting_magnetization(system, self.pseudos, warn=False)
+        moments = magnitudes[types, None] * self.magnetization_directions[types]
+        return fixed_quantization_axis(moments, system.b_field)
 
     @property
     def magnetization_directions(self) -> np.ndarray:
@@ -7738,6 +7728,49 @@ def _warn_if_the_hubbard_moment_moved(start: float | None, end: float | None,
         stacklevel=3,
     )
     return True
+
+
+def _starting_magnetization(system, pseudos, warn: bool = True) -> np.ndarray:
+    """:attr:`Calculation.starting_magnetization` of ``system`` and ``pseudos``.
+
+    The property's docstring says what it is. ``warn`` is off for a reader that
+    is not the starting guess (:meth:`Calculation._compute_ux`), so the warning
+    about the division is said once, by the guess.
+    """
+    ntyp = system.structure.ntyp
+    values = np.zeros(ntyp)
+    given = np.asarray(system.starting_magnetization, dtype=float)
+    values[: given.size] = given[:ntyp]
+    if np.any(np.abs(values) >= 1.0):
+        valence = np.array(
+            [float(pseudos[t].z_valence) for t in range(ntyp)]
+        )
+        divided = values / valence
+        # The 'atomic' target stays undivided (the property's docstring), so the
+        # sentence that says this run does the same must not cover it.
+        target = (
+            " The 'atomic' constraint target is the exception: it is the "
+            "number written, in Bohr magnetons, where pw.x aims at the "
+            "divided value, a factor of the valence charge smaller."
+            if system.constrained_magnetization == "atomic" else ""
+        )
+        if warn:
+            warnings.warn(
+                f"starting_magnetization {np.round(values, 6).tolist()} has an "
+                f"entry at or above 1, so pw.x reads the whole set as Bohr "
+                f"magnetons and divides every species by its valence charge "
+                f"({valence.tolist()}), giving {np.round(divided, 6).tolist()} as the "
+                f"fraction of the valence charge each atom is polarised by "
+                f"(input.f90:1482). This run does the same for the starting "
+                f"guess.{target} If you meant a fraction, write a value below 1",
+                stacklevel=3,
+            )
+        values = divided
+    if system.constrained_magnetization == "none":
+        # ``input.f90:1510-1514``, inside ``CASE('none')`` exactly as here.
+        # A magnitude above 1 would otherwise seed a negative channel.
+        values = np.clip(values, -1.0, 1.0)
+    return values
 
 
 def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:

@@ -147,3 +147,64 @@ def test_one_texture_has_one_axis_with_or_without_a_card(afm):
         np.testing.assert_allclose(turned.local_moments,
                                    [[0.0, 0.0, 0.5], [0.0, 0.0, -0.5]],
                                    atol=1.0e-12)
+
+
+# -- the parallel test is compute_ux's (AUDIT-2026-11-20b #4) -----------------
+
+def _canted(degrees, length):
+    """Two moments of one length, the second ``degrees`` from the first in ``xz``."""
+    angle = np.radians(degrees)
+    return np.array([[0.0, 0.0, length],
+                     [length * np.sin(angle), 0.0, length * np.cos(angle)]])
+
+
+def test_the_parallel_test_is_on_the_unnormalized_moments():
+    """``|ux x m|^2 < 1e-6`` on ``m_loc`` itself, as ``is_parallel`` has it.
+
+    So the bound depends on the lengths. The audit's pair, 0.1 each at 175
+    degrees, gives ``|m1 x m2|^2 = 7.6e-7`` and ``pw.x`` prints a fixed axis;
+    90 degrees at 0.5 is not parallel; 90 degrees at 0.01 is (1e-8). A moment of
+    length 5e-7 is no seed (``|m|^2 = 2.5e-13``). A ``STARTING_MOMENTS`` card,
+    which ``pw.x`` does not have, keeps the test on unit vectors.
+    """
+    np.testing.assert_allclose(fixed_quantization_axis(_canted(175.0, 0.1)),
+                               (0.0, 0.0, 1.0), atol=1.0e-15)
+    assert fixed_quantization_axis(_canted(90.0, 0.5)) is None
+    np.testing.assert_allclose(fixed_quantization_axis(_canted(90.0, 0.01)),
+                               (0.0, 0.0, 1.0), atol=1.0e-15)
+    tiny = np.array([[0.0, 0.0, 5.0e-7], [0.3, 0.0, 0.0]])
+    np.testing.assert_allclose(fixed_quantization_axis(tiny), (1.0, 0.0, 0.0),
+                               atol=1.0e-15)
+
+    assert fixed_quantization_axis(_canted(175.0, 0.1), card=True) is None
+    assert fixed_quantization_axis(_canted(90.0, 0.01), card=True) is None
+    np.testing.assert_allclose(
+        fixed_quantization_axis(_canted(180.0, 0.5), card=True), (0.0, 0.0, 1.0),
+        atol=1.0e-15)
+
+
+def test_the_calculation_tests_m_loc_in_pw_x_units():
+    """A value in Bohr magnetons is divided by ``zv`` before the test, as in ``setup.f90``.
+
+    ``fe2-afm-soc.in`` with 2.0 on each iron (``zv = 16``, so 0.125 in ``m_loc``)
+    and the second moment 0.5 degrees from antiparallel: ``|m1 x m2|^2 = 1.9e-8``,
+    parallel, so the axis is the first moment's. The numbers as written would
+    give 1.2e-3, and the unit vectors 7.6e-5, neither of them parallel.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+
+    text = AFM.read_text()
+    for old, new in (("ecutwfc = 35.0, ecutrho = 280.0", "ecutwfc = 12.0, ecutrho = 48.0"),
+                     ("starting_magnetization(1) = 0.5", "starting_magnetization(1) = 2.0"),
+                     ("starting_magnetization(2) = 0.5", "starting_magnetization(2) = 2.0"),
+                     ("angle2(2) = 180.0", "angle2(2) = 179.5")):
+        assert old in text
+        text = text.replace(old, new)
+    system = build_system(parse_pw_input(text))
+    pseudo = AFM.parents[1] / "pseudo"
+    pseudos = tuple(read_upf(pseudo / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    np.testing.assert_allclose(calculation.quantization_axis, (1.0, 0.0, 0.0),
+                               atol=1.0e-12)

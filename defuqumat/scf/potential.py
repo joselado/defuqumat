@@ -457,7 +457,14 @@ def _noncollinear_xc(density: jnp.ndarray, cell: Cell, functional: Functional):
     return v, energy
 
 
-def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | None:
+#: ``eps12`` in ``compute_ux``: an atom seeds the axis when ``|m_loc|^2`` exceeds it.
+UX_SEED = 1.0e-12
+#: ``is_parallel`` (``divide_class.f90:2757-2759``): ``|a x b|^2`` below this.
+UX_PARALLEL = 1.0e-6
+
+
+def fixed_quantization_axis(moments: np.ndarray, field=None,
+                            card: bool = False) -> np.ndarray | None:
     """``compute_ux``: a fixed axis to take the sign of the magnetization along.
 
     A gradient-corrected noncollinear run resolves the density onto the local
@@ -472,6 +479,25 @@ def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | Non
     parallel (QE's ``lsign = .FALSE.``), in which case ``|m|`` is used and the
     kink is accepted -- there is no single axis to take a sign along.
 
+    **The test is ``compute_ux``'s, literally** (AUDIT-2026-11-20b #4).
+    ``moments`` is ``m_loc`` as ``setup.f90`` builds it: ``starting_magnetization``
+    in ``pw.x``'s units, after the ``zv`` division and the clamp
+    (:attr:`~defuqumat.scf.driver.Calculation.starting_magnetization`), times the
+    direction of ``angle1``/``angle2``. The first atom with ``|m|^2 > 1e-12`` is
+    the seed, and every later atom must have ``|ux x m|^2 < 1e-6`` on the
+    **unnormalized** vectors (``is_parallel``). That bound depends on the
+    lengths: two moments of 0.1 count as parallel up to ``sin(theta) = 0.1``
+    (5.7 degrees from parallel or antiparallel), two of 0.5 up to 4e-3, and two
+    of 0.01 at any angle. It is ``pw.x``'s rule and is kept as one, so that a
+    ``'kubler'`` run takes the branch ``pw.x`` takes. The test used to be on
+    unit vectors to 1e-6, which gave ``|m|`` and its kinks to a cant ``pw.x``
+    takes signed.
+
+    ``card``: the moments come from a ``STARTING_MOMENTS`` card, which ``pw.x``
+    does not have. They are in Bohr magnetons, so there is no ``pw.x`` scale to
+    copy, and they keep the test on unit vectors to 1e-6, seeded on
+    ``|m| > 1e-12``: a card is parallel only when it says so.
+
     ``field`` is the uniform ``B_field``, read only when **no** atom has a
     starting moment. That run is magnetic because of the field alone
     (:func:`~defuqumat.system.builder.is_magnetic`), which ``compute_ux`` never
@@ -482,18 +508,27 @@ def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | Non
     """
     moments = np.asarray(moments, dtype=float)
     norms = np.linalg.norm(moments, axis=1)
-    nonzero = np.flatnonzero(norms > 1.0e-12)
+    if card:
+        nonzero = np.flatnonzero(norms > 1.0e-12)
+    else:
+        nonzero = np.flatnonzero(np.sum(moments * moments, axis=1) > UX_SEED)
     if not len(nonzero):
         if field is None:
             return None
         field = np.asarray(field, dtype=float).reshape(3)
         strength = float(np.linalg.norm(field))
         return field / strength if strength > 1.0e-12 else None
-    axis = moments[nonzero[0]] / norms[nonzero[0]]
+    seed = moments[nonzero[0]]
+    axis = seed / norms[nonzero[0]]
     for index in nonzero[1:]:
-        direction = moments[index] / norms[index]
-        if np.linalg.norm(np.cross(axis, direction)) > 1.0e-6:
-            return None
+        if card:
+            direction = moments[index] / norms[index]
+            if np.linalg.norm(np.cross(axis, direction)) > 1.0e-6:
+                return None
+        else:
+            cross = np.cross(seed, moments[index])
+            if not float(np.dot(cross, cross)) < UX_PARALLEL:
+                return None
     return axis
 
 
