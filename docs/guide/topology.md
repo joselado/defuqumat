@@ -490,6 +490,19 @@ $\nu_0$, which here is zero because the layers do not talk to each other.
     `method="wilson"`. A crystal without magnetization has $C = 0$ by time
     reversal.
 
+    The $\mathbb Z_2$ invariant also gives an error when the run breaks time
+    reversal. This is a run with a magnetization (a nonzero
+    `starting_magnetization` or a `STARTING_MOMENTS` card), with `B_field` or a
+    `LOCAL_MAGNETIC_FIELDS` card, or with `constrained_magnetization`. Both
+    methods need time reversal, and without it they give an integer that means
+    nothing. For a magnet you compute the Chern number instead. The error is
+    also given for an antiferromagnet where time reversal combined with a half
+    translation is a symmetry, which has a $\mathbb Z_2$ on some planes,
+    because the code does not use such a combined symmetry. For a spin-orbit
+    run without magnetism, you set `starting_magnetization` to zero. The plane
+    must also be invariant under time reversal, so `offset` must be 0 or 1/2,
+    and another value gives an error with both methods.
+
     `method="kubo"` is for the map, and `method="fhs"` is for the integer,
     because the Kubo sum diverges where two bands meet and its sum over the
     mesh is never an exact integer. The Kubo sum over the empty bands stops at

@@ -290,7 +290,21 @@ def wilson_z2(
     k-list does not affect, a row is 29.8x cheaper, and streaming is simply the
     cheap option. The flag stays because the two ends still differ in *how* they
     spend, but the reason to reach for ``stream=False`` has gone.
+
+    ``offset`` must be 0 or 1/2 modulo 1: only then is the plane mapped onto
+    itself by time reversal, and only then is the crossing count a Z2. Another
+    plane is refused, with the tolerance the parity route's TRIM check uses
+    (audit 2026-11-20c #4).
     """
+    if not np.isclose(2.0 * float(offset), np.rint(2.0 * float(offset)), rtol=0.0,
+                      atol=1e-8):
+        raise ValueError(
+            f"offset = {offset} is not a time-reversal-invariant plane: a Z2 "
+            "of one plane needs k = 0 or k = 1/2 (modulo 1) along the axis, "
+            "since only then are the Wannier centres Kramers pairs at the two "
+            "ends of the pump. Another plane has a Chern number (get_chern), "
+            "not a Z2"
+        )
     mesh = pumping_mesh(nloop, npump, axis=axis, offset=offset)
     n1, n2 = mesh.shape
     pump = mesh.points[0, :, PLANE_AXES[axis % 3][1]]

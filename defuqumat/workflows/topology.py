@@ -16,8 +16,9 @@ eight points and nothing else.
 is doubly degenerate in spin, the two copies carry opposite Chern numbers, the
 Wannier centres cross in pairs and every Z2 is trivially zero -- a number that
 is correct, uninformative, and indistinguishable from a real answer. So a Z2 run
-on a calculation with ``noncolin = .false.`` is refused. A Chern number is a
-different matter: it needs *broken* time reversal, which this code can only
+on a calculation with ``noncolin = .false.`` is refused, and so is one whose
+Hamiltonian breaks time reversal (``domag``, a field or a constrained moment),
+since both Z2 routes need it. A Chern number is a different matter: it needs *broken* time reversal, which this code can only
 reach through a magnetization, so a nonmagnetic run's Chern number is zero by
 symmetry and computing it is a check of the machinery rather than physics.
 
@@ -554,6 +555,39 @@ def _require_spinors(system: System, what: str) -> None:
         )
 
 
+def _require_time_reversal(system: System, what: str) -> None:
+    """Refuse a Z2 on a run whose Hamiltonian breaks time reversal.
+
+    Both routes assume it. The Wilson route counts crossings of Wannier
+    centres that are Kramers pairs at ``t = 0`` and ``t = 1/2``, and nothing
+    in :func:`~defuqumat.topology.wilson.z2_from_centers` checks the pairing;
+    the parity route multiplies the parities of Kramers pairs, and without
+    time reversal that product is an axion-type index, not a Z2. A magnetic
+    run (``domag``, so ``nspin_mag = 4``) or a run under a field or a
+    constrained moment carries its exchange field into the frozen potential,
+    so either route returned an integer that meant nothing (audit 2026-11-20c
+    #4). The refusal is wide: an antiferromagnet whose time reversal combined
+    with a half translation is a symmetry has a Z2 on the planes that the
+    combination leaves invariant, and nothing in :mod:`defuqumat.topology`
+    reads such an operation, so it is refused too.
+    """
+    if system.domag or system.has_applied_field:
+        reason = ("carries a magnetization" if system.domag
+                  else "has a magnetic field or a constrained moment")
+        raise ValueError(
+            f"{what} needs time-reversal symmetry, and this run {reason}, "
+            "which breaks it: the Wannier centres are then not Kramers pairs "
+            "at the two ends of the pump and the parity product is not a Z2, "
+            "so either route would return an integer that means nothing. The "
+            "invariant of a magnet is the Chern number (get_chern). A Z2 "
+            "protected by time reversal combined with a translation (an "
+            "antiferromagnetic topological insulator) is not implemented. For "
+            "a nonmagnetic spin-orbit run, set starting_magnetization to zero "
+            "and give no B_field, LOCAL_MAGNETIC_FIELDS or "
+            "constrained_magnetization"
+        )
+
+
 def run_berry_curvature(
     system: System,
     pseudos,
@@ -655,6 +689,7 @@ def run_z2(
     making: they share no machinery beyond the state set.
     """
     _require_spinors(system, "the Z2 invariant")
+    _require_time_reversal(system, "the Z2 invariant")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
@@ -693,6 +728,7 @@ def run_z2_3d(
     nothing without it -- they are not invariant under a change of cell.
     """
     _require_spinors(system, "the Z2 invariants")
+    _require_time_reversal(system, "the Z2 invariants")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
