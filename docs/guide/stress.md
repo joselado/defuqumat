@@ -208,6 +208,12 @@ cell against each other, and this internal relaxation lowers $C_{44}$.
     An electric field (`tefield` or `lelfield`) gives no stress, and so no
     `vc-relax`, as in `pw.x`.
 
+    A `vc-relax` with `cell_dynamics = 'none'` gives an error. In `pw.x` this
+    input keeps the cell fixed and moves only the ions, by damped dynamics. Our
+    BFGS would also relax the cell and give another crystal. For the ions at a
+    fixed cell you call `get_relax()` without `variable_cell`. The damped cell
+    dynamics `'damp-w'` and `'damp-pr'` also give an error.
+
 The notebooks for this page are
 [15, the stress tensor](https://github.com/joselado/defuqumat/blob/master/notebooks/15_stress.ipynb),
 [23, variable-cell relaxation](https://github.com/joselado/defuqumat/blob/master/notebooks/23_variable_cell_relaxation.ipynb)

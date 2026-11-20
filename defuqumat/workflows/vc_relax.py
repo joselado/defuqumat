@@ -51,7 +51,8 @@ the cell because it works in crystal coordinates, so
 
 **Refused by name.** ``cell_dynamics`` other than ``'bfgs'`` -- QE's ``'damp-w'``
 and ``'damp-pr'`` are Wentzcovitch/Parrinello-Rahman damped dynamics with a
-fictitious cell mass, a different optimizer rather than a different setting --
+fictitious cell mass, a different optimizer rather than a different setting,
+and ``'none'`` on a ``vc-relax`` is damped dynamics of the ions at a fixed cell --
 and the ``cell_dofree`` values that impose a constraint beyond their mask
 (:mod:`defuqumat.relax.cell`).
 """
@@ -254,9 +255,7 @@ def run_vc_relax(
         settings.press_conv_thr if press_conv_thr is None else press_conv_thr
     )
     cell_dofree = settings.cell_dofree if cell_dofree is None else cell_dofree
-    cell_dynamics = (
-        settings.cell_dynamics if cell_dynamics is None else cell_dynamics
-    )
+    cell_dynamics = _resolve_cell_dynamics(system, cell_dynamics)
     treinit_gvectors = (
         settings.treinit_gvectors if treinit_gvectors is None else treinit_gvectors
     )
@@ -497,10 +496,21 @@ def _check_geometry(system: System, previous) -> None:
         )
 
 
+#: What ``cell_dynamics = 'none'`` is on a ``vc-relax`` in ``pw.x``
+#: (``input.f90``, ``CASE( 'none' )``: ``calc = 'mm'``, and ``lbfgs`` stays
+#: false whatever ``ion_dynamics`` says).
+_NONE_ON_A_VC_RELAX = (
+    "cell_dynamics = 'none' on a vc-relax is not implemented: pw.x then keeps "
+    "the cell fixed and minimises the ions by damped dynamics (calc = 'mm', "
+    "vcsmd.f90), whatever ion_dynamics says. Running it here would relax the "
+    "cell by BFGS and give another crystal. For the ions at a fixed cell, run "
+    "get_relax() without variable_cell"
+)
+
 #: ``cell_dynamics`` values ``pw.x`` accepts, with what each would need here.
 _CELL_DYNAMICS = {
     "bfgs": None,
-    "none": None,
+    "none": _NONE_ON_A_VC_RELAX,
     "sd": "steepest descent on the cell (Modules/cell_base.f90, calc = 'sd')",
     "damp-pr": (
         "Parrinello-Rahman damped dynamics with a fictitious cell mass "
@@ -515,6 +525,26 @@ _CELL_DYNAMICS = {
 }
 
 
+def _resolve_cell_dynamics(system: System, cell_dynamics: str | None) -> str | None:
+    """The ``cell_dynamics`` a variable-cell run was asked for.
+
+    An argument wins. Otherwise it is the input's, read by
+    :func:`~defuqumat.system.builder._relax_settings`, which keeps the
+    namelist's literal ``'none'`` for an input whose ``calculation`` is not a
+    variable-cell one. That ``'none'`` was never a request: ``pw.x`` reads it
+    only on a ``vc-`` run, and a cell relaxation asked of such a system through
+    the API runs BFGS, as it did before ``'none'`` was refused (audit
+    2026-11-20b #24).
+    """
+    if cell_dynamics is not None:
+        return cell_dynamics
+    asked = system.relax.cell_dynamics
+    calculation = str(getattr(system, "calculation", "scf")).lower()
+    if str(asked).lower() == "none" and not calculation.startswith("vc-"):
+        return "bfgs"
+    return asked
+
+
 def _check_cell_dynamics(cell_dynamics: str | None) -> None:
     if cell_dynamics is None:
         return
@@ -524,6 +554,8 @@ def _check_cell_dynamics(cell_dynamics: str | None) -> None:
             f"unknown cell_dynamics {name!r}; expected one of "
             f"{', '.join(sorted(_CELL_DYNAMICS))}"
         )
+    if name == "none":
+        raise NotImplementedError(_CELL_DYNAMICS[name])
     if _CELL_DYNAMICS[name] is not None:
         raise NotImplementedError(
             f"cell_dynamics = {name!r} is not implemented -- it needs "
