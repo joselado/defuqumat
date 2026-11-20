@@ -300,8 +300,9 @@ Before we trust the numbers of a new crystal, we check four things.
     PAW dataset as well, because the PAW spheres take one `c` and here `c` is a
     field. So with `lmbj` you use a norm-conserving dataset. It also gives an
     error for spinors, spin spirals and `nosource`, which are not checked.
-    With `nspin = 2` and a magnetic moment, `lmbj` runs, but no number checks
-    it yet: only the case with no moment is checked, against `nspin = 1`.
+    With `nspin = 2` and a magnetic moment, `lmbj` runs, but this case is not
+    checked yet. We checked only the case with no moment, which gives the same
+    result as `nspin = 1`.
     With `tb09` or `bj06` the code warns that the total energy is not the
     energy of any functional, and forces, stress, phonons and the responses give
     an error.
