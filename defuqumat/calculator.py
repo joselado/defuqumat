@@ -722,14 +722,7 @@ class Calculator:
                 self.system,
                 self.pseudos,
                 basis=self._basis,
-                diagonalization=self.defaults.get("diagonalization"),
-                k_batch=self.defaults.get("k_batch", "default"),
-                david=self.defaults.get("david"),
-                projectors=self.defaults.get("projectors", "default"),
-                origin_tangent=self.defaults.get("origin_tangent", True),
-                memory_mode=self.defaults.get("memory_mode", "default"),
-                band_batch=self.defaults.get("band_batch", "default"),
-                band_precision=self.defaults.get("band_precision", "default"),
+                **{name: self._setup_option(name) for name in self.SETUP_OPTIONS},
             )
         return self._calculation
 
@@ -737,6 +730,21 @@ class Calculator:
     #: rather than one run over it. Given per call, they have to rebuild it.
     SETUP_OPTIONS = ("diagonalization", "k_batch", "david", "projectors",
                      "origin_tangent", "memory_mode", "band_batch", "band_precision")
+
+    #: What the ``Calculation`` is built with when ``defaults`` does not name an
+    #: option; an option missing here falls back to ``None``. :meth:`_adopt`
+    #: compares against the same values, so a call that passes the value the
+    #: setup was built with is not a change. It compared ``origin_tangent``
+    #: against ``None`` while the build used ``True``, so
+    #: ``get_scf(origin_tangent=True)`` rebuilt the ``Calculation`` and dropped
+    #: the dielectric and strain slots on a cache hit (audit 2026-11-20 #20).
+    SETUP_FALLBACKS = {"k_batch": "default", "projectors": "default",
+                       "origin_tangent": True, "memory_mode": "default",
+                       "band_batch": "default", "band_precision": "default"}
+
+    def _setup_option(self, name: str):
+        """The value of a :data:`SETUP_OPTIONS` member the ``Calculation`` is built with."""
+        return self.defaults.get(name, self.SETUP_FALLBACKS.get(name))
 
     def _adopt(self, options) -> None:
         """Take a per-call setup option as this calculator's own.
@@ -747,11 +755,7 @@ class Calculator:
         is about to be replaced anyway.
         """
         changed = {name: options[name] for name in self.SETUP_OPTIONS
-                   if name in options and options[name] != self.defaults.get(
-                       name, "default"
-                       if name in ("k_batch", "projectors", "memory_mode",
-                                   "band_batch", "band_precision")
-                       else None)}
+                   if name in options and options[name] != self._setup_option(name)}
         if changed:
             self.defaults.update(changed)
             self._calculation = None
