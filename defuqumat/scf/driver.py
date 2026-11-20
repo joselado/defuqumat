@@ -6141,8 +6141,19 @@ class Calculation:
         return self.finish_kinetic_energy_density(tau, symmetrize)
 
     def finish_kinetic_energy_density(self, tau, symmetrize: bool = True):
-        """The dense-grid lift and the ``sym_rho`` of :meth:`kinetic_energy_density`."""
-        tau = to_dense(tau, self.basis.smooth, self.basis.dense)
+        """The dense-grid lift and the ``sym_rho`` of :meth:`kinetic_energy_density`.
+
+        Lifted as the density is (:meth:`lift_density`): a spin spiral's
+        transverse ``tau'_+`` carries the same ``e^{-i q.r}`` as ``m'_+`` and is
+        band-limited to the displaced smooth sphere ``{G : |G - q| < G_s}``, so
+        it goes up through :attr:`spiral_smooth`. Through the resident sphere
+        the shell the two do not share was dropped: on the TB09 hydrogen chain
+        at ``ecutrho = 8 ecutwfc`` that is 8.7e-10 of ``|tau'_+|^2`` and 2.4e-6
+        of a pair of 0.082 pointwise, where the density's shell is 1.2e-12
+        (audit 2026-11-20c #25). Without a separate smooth grid both lifts are
+        the identity.
+        """
+        tau = self.lift_density(tau)
         return self.symmetrize(tau) if symmetrize else tau
 
     def hamiltonian(self, v_scf: jnp.ndarray, ddd_paw=None, hubbard=None) -> tuple:
