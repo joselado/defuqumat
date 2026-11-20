@@ -6396,8 +6396,8 @@ class Calculation:
         """``starting_magnetization`` per species, in QE's units, padded to ``ntyp``.
 
         **A value at or above 1 is read as Bohr magnetons and divided by the
-        valence charge**, which is `input.f90:1448-1449` and is not optional if
-        the same input file is to mean the same thing in both codes:
+        valence charge**, which is `input.f90:1482-1483` (QE 7.5) and is not
+        optional if the same input file is to mean the same thing in both codes:
 
             IF (ANY(ABS(starting_magnetization(1:nsp)) >= 1)) &
                  starting_magnetization = starting_magnetization / zv
@@ -6409,7 +6409,7 @@ class Calculation:
         ``noncolin`` block and outside the ``constrained_magnetization``
         ``SELECT``, so it is unconditional.
 
-        The clamp at `:1476-1480` is **not** unconditional -- QE applies it
+        The clamp at `:1510-1514` is **not** unconditional -- QE applies it
         inside ``CASE('none')`` -- and it is what stops a channel density going
         negative: without it ``starting_magnetization = 2`` splits an oxygen
         atom into 9 up and **-3 down** electrons, which is not a density.
@@ -6417,7 +6417,10 @@ class Calculation:
         This is the *seeding* number only. ``constraint_targets`` is built from
         ``system.starting_magnetization`` directly and is deliberately left
         alone: ``get_locals`` returns Bohr magnetons and a constraint aims at
-        exactly the number the user wrote.
+        exactly the number the user wrote. That is a departure from ``pw.x``,
+        which divides before it builds ``mcons`` (``input.f90:1540-1549``), so
+        under ``'atomic'`` with a value at or above 1 the two codes aim at
+        targets a factor ``zv`` apart, and the warning below names it.
         """
         ntyp = self.system.structure.ntyp
         values = np.zeros(ntyp)
@@ -6428,19 +6431,27 @@ class Calculation:
                 [float(self.pseudos[t].z_valence) for t in range(ntyp)]
             )
             divided = values / valence
+            # The 'atomic' target stays undivided (see the docstring), so the
+            # sentence that says this run does the same must not cover it.
+            target = (
+                " The 'atomic' constraint target is the exception: it is the "
+                "number written, in Bohr magnetons, where pw.x aims at the "
+                "divided value, a factor of the valence charge smaller."
+                if self.system.constrained_magnetization == "atomic" else ""
+            )
             warnings.warn(
-                f"starting_magnetization {list(np.round(values, 6))} has an entry "
-                f"at or above 1, so pw.x reads the whole set as Bohr magnetons and "
-                f"divides every species by its valence charge "
-                f"({list(valence)}), giving {list(np.round(divided, 6))} as the "
+                f"starting_magnetization {np.round(values, 6).tolist()} has an "
+                f"entry at or above 1, so pw.x reads the whole set as Bohr "
+                f"magnetons and divides every species by its valence charge "
+                f"({valence.tolist()}), giving {np.round(divided, 6).tolist()} as the "
                 f"fraction of the valence charge each atom is polarised by "
-                f"(input.f90:1448). This run does the same. If you meant a "
-                f"fraction, write a value below 1",
+                f"(input.f90:1482). This run does the same for the starting "
+                f"guess.{target} If you meant a fraction, write a value below 1",
                 stacklevel=2,
             )
             values = divided
         if self.system.constrained_magnetization == "none":
-            # ``input.f90:1476-1480``, inside ``CASE('none')`` exactly as here.
+            # ``input.f90:1510-1514``, inside ``CASE('none')`` exactly as here.
             # A magnitude above 1 would otherwise seed a negative channel.
             values = np.clip(values, -1.0, 1.0)
         return values

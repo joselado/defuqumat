@@ -326,7 +326,16 @@ def constraint_targets(
       ``starting_magnetization``, which is a fraction of the valence charge. The
       benchmark shows the consequence plainly: iron's moment falls from 3.06 to
       1.6 mu_B under ``constrained_magnetization = 'atomic'`` with a target of
-      0.5. Transcribed as it is, because reproducing QE is the point;
+      0.5. Transcribed as it is for values below 1, where the two codes agree.
+      **At or above 1 this departs from QE, on purpose** (``PLAN.md`` P77c, audit
+      2026-11-20b #32): ``input.f90:1482-1483`` divides every
+      ``starting_magnetization`` by its ``zv`` before the ``SELECT`` that builds
+      ``mcons`` (``:1540-1549``), so ``pw.x`` aims at the divided value, while
+      the caller passes ``system.starting_magnetization`` undivided and the
+      target here is the number written, in Bohr magnetons. Iron with
+      ``zv = 16`` and ``starting_magnetization(1) = 2`` is aimed at 2 mu_B here
+      and at 0.125 mu_B by ``pw.x``. Only the starting guess takes the division
+      (``Calculation.starting_magnetization``), and its warning says so;
     * ``atomic direction`` -- ``(nat, 1)``: the cosine of the polar angle;
     * ``total`` -- ``(3,)``: ``fixed_magnetization``, in Bohr magnetons;
     * ``total direction`` -- ``(1,)``: the polar angle in *degrees*, which QE

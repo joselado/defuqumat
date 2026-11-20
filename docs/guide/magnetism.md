@@ -320,7 +320,13 @@ what we read is the torque on each site.
     need `noncolin = .true.`, so `'total direction'` or `'atomic direction'` with
     `nspin = 2` gives an error, as in `pw.x`. `'atomic'` and `'atomic direction'`
     need some `starting_magnetization` or a `STARTING_MOMENTS` card, because the
-    targets are built from them and would all be zero otherwise.
+    targets are built from them and would all be zero otherwise. If any
+    `starting_magnetization` is 1 or more, `pw.x` reads all of them in Bohr
+    magnetons and divides each by the valence charge of its species. We do the
+    same for the starting guess. The target of `'atomic'` is different: we keep
+    the number you wrote, in Bohr magnetons, while `pw.x` divides it as well. So
+    for iron with 16 valence electrons and `starting_magnetization(1) = 2`, we
+    aim at 2 Bohr magnetons and `pw.x` at 0.125, and the code warns about it.
     `'atomic texture'` needs a `STARTING_MOMENTS` card with no zero row, because
     a zero vector has no direction. The code also warns that
     `'atomic texture'` did not converge at any `lambda` we tried, so for a texture

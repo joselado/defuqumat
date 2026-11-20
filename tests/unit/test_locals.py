@@ -257,6 +257,45 @@ def test_the_seeded_moment_is_the_one_pw_x_would_seed(written, expected, pseudo_
     assert bool(reinterpreted) == (abs(written) >= 1.0)
 
 
+def test_the_atomic_target_is_the_number_written_and_the_warning_says_so(pseudo_dir):
+    """At ``starting_magnetization >= 1`` the seed is divided by ``Z_v`` and the
+    ``'atomic'`` target is not (``PLAN.md`` P77c), where ``pw.x`` divides both.
+
+    The warning said "This run does the same" for the whole set (audit
+    2026-11-20b #32); it now says that the target is the exception.
+    """
+    import re
+    import tempfile
+    import warnings
+
+    text = re.sub(
+        r"starting_magnetization\(1\)\s*=\s*[-\d.]+",
+        "starting_magnetization(1) = 2.0, constrained_magnetization = 'atomic', "
+        "lambda = 0.5",
+        (QE / "o-atom-lsda.in").read_text(),
+    )
+    directory = Path(tempfile.mkdtemp())
+    for constraint in ("atomic", "none"):
+        (directory / "case.in").write_text(
+            text if constraint == "atomic" else text.replace(
+                ", constrained_magnetization = 'atomic', lambda = 0.5", ""))
+        system = system_from_file(directory / "case.in")
+        pseudos = tuple(
+            read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            calculation = Calculation(system, pseudos)
+            seed = calculation.starting_magnetization
+        assert seed[0] == pytest.approx(2.0 / 6.0)
+        said = [str(w.message) for w in caught if "Bohr magnetons" in str(w.message)]
+        assert said and all("starting guess" in one for one in said)
+        assert any("'atomic' constraint target is the exception" in one
+                   for one in said) == (constraint == "atomic")
+        if constraint == "atomic":
+            assert np.asarray(calculation.magnetic_field.targets).ravel()[0] == 2.0
+
+
 def test_the_collinear_and_noncollinear_seeds_use_the_same_rule(pseudo_dir):
     """``spin_weights`` had its own copy of the padding, and so its own units.
 
