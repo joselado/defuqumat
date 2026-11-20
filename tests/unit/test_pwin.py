@@ -255,6 +255,52 @@ def test_every_fortran_logical_spelling(token, expected):
         "control", "lberry") is expected
 
 
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        (".true", True), (".TRUE", True), (".tru.", True), (".tr", True),
+        (".false", False), (".FALSE", False), (".fals", False), (".fa.", False),
+    ],
+)
+def test_a_logical_with_no_closing_period_is_still_the_logical(token, expected):
+    """``.true`` is a logical for gfortran (an optional period, then T or F, then
+    anything), and it stayed the *string* ``'.true'`` here (audit 2026-11-20b
+    #16). ``builder._logical`` then read it as false and ``bool()`` as true.
+    """
+    assert parse_pw_input(f"&control\n lberry = {token}\n/\n").get(
+        "control", "lberry") is expected
+
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [(".02", 0.02), (".5d0", 0.5), ("'.true'", ".true"), ("'.tmp'", ".tmp")],
+)
+def test_a_number_or_a_quoted_string_with_a_period_is_not_a_logical(token, expected):
+    """The other side of the rule above: only a period followed by a part of
+    ``true`` or ``false`` is read as a logical."""
+    assert parse_pw_input(f"&control\n outdir = {token}\n/\n").get(
+        "control", "outdir") == expected
+
+
+def test_nosym_written_without_its_closing_period_switches_symmetry_off():
+    """The end of the #16 path: ``nosym = .true`` symmetrised the run."""
+    from defuqumat.system.builder import build_system
+
+    system = build_system(parse_pw_input(_MINIMAL.format(control="", system="nosym = .true")))
+    assert system.nosym is True
+    system = build_system(parse_pw_input(_MINIMAL.format(control="", system="nosym = .false")))
+    assert system.nosym is False
+
+
+def test_diago_full_acc_written_without_its_closing_period_is_false():
+    """``electrons_defaults`` read the string ``'.false'`` through ``bool()``, as true."""
+    from defuqumat.calculator import electrons_defaults
+
+    for token, expected in ((".false", False), (".true", True), (".false.", False)):
+        pwin = parse_pw_input(f"&electrons\n diago_full_acc = {token}\n/\n")
+        assert electrons_defaults(pwin)["diago_full_acc"] is expected
+
+
 def test_lberry_false_written_bare_does_not_ask_for_a_berry_run():
     """The end of that path: ``lberry = F`` asked for gdir and nppstr."""
     from defuqumat.system.builder import build_system

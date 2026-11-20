@@ -435,8 +435,13 @@ def electrons_defaults(pwin) -> dict:
             # A Fortran logical, which ``_convert`` has already turned into a
             # Python ``bool``. Without this arm it would fall through to the
             # string branch below and arrive as ``"True"`` -- truthy either
-            # way, and the wrong type.
-            value = bool(value)
+            # way, and the wrong type. Read by the parser's rule rather than
+            # by ``bool()``, which took any string left over, ``'.false'``
+            # among them before the parser knew it, as true (audit
+            # 2026-11-20b #16).
+            from defuqumat.io.pwin import fortran_logical
+
+            value = fortran_logical(value) is True
         else:
             value = str(value).strip().strip("'\"")
         adopted[option] = value

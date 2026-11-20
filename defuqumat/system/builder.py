@@ -20,7 +20,7 @@ import equinox as eqx
 import numpy as np
 
 from defuqumat.config import DEFAULT_PRECISION, Precision
-from defuqumat.io.pwin import Card, PwInput, fortran_float, read_pw_input
+from defuqumat.io.pwin import Card, PwInput, fortran_float, fortran_logical, read_pw_input
 from defuqumat.relax.settings import RelaxSettings
 from defuqumat.system.cell import Cell, celldm_from_abc
 from defuqumat.system.kpoints import (
@@ -2064,10 +2064,13 @@ def _refuse_unimplemented_switches(pwin: PwInput) -> None:
 
 
 def _logical(value) -> bool:
-    """A Fortran logical that may already have been parsed to a bool."""
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in (".true.", ".t.", "true", "t")
+    """A Fortran logical that may already have been parsed to a bool.
+
+    The spellings are the parser's (:func:`defuqumat.io.pwin.fortran_logical`),
+    so ``.true`` with no closing period is true here as it is there; anything
+    that is not a logical spelling reads as false, as before.
+    """
+    return fortran_logical(value) is True
 
 
 def _integration_radii(pwin: PwInput, cell: Cell, structure: Structure) -> tuple:
