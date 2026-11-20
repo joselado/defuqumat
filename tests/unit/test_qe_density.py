@@ -401,3 +401,36 @@ def test_a_state_of_a_functional_pw_x_does_not_run_is_written_with_a_warning(gga
     data = Path(__file__).resolve().parents[1] / "data" / "qe"
     real = Calculator.from_file(data / "fe-kind1-noncol.in", pseudo_dir=PSEUDO).calculation
     assert real.noncollinear_gga == "grad_m"
+
+
+@pytest.mark.parametrize("scale, lspinorb, warned", [
+    (0.0, True, True), (0.5, True, True), (1.0, True, False), (0.0, False, False),
+])
+def test_a_spin_orbit_state_at_another_soc_scale_is_written_with_a_warning(scale, lspinorb, warned):
+    """``pw.x`` has no ``soc_scale``; its ``lspinorb`` takes the whole coupling (audit 2026-11-20 #41).
+
+    At ``soc_scale = 0`` the written ``paw.txt`` is the reduced ``becsum``,
+    not ``add_becsum_so``'s, and ``pw.x`` reads it without complaint as a start
+    for another Hamiltonian. No ``pw.x`` restart from such a state was run.
+    The attributes read are the ones a real fully-relativistic ``System``
+    carries after ``with_soc_scale``.
+    """
+    import warnings
+    from types import SimpleNamespace
+    from defuqumat.io.qe_density import _warn_another_functional
+
+    calculation = SimpleNamespace(
+        noncollinear_gga="kubler", functional=SimpleNamespace(meta=None),
+        system=SimpleNamespace(lspinorb=lspinorb, soc_scale=scale))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _warn_another_functional(calculation)
+    messages = [str(w.message) for w in caught]
+    assert messages == [] if not warned else (
+        len(messages) == 1 and "soc_scale" in messages[0])
+
+    system = Calculator.from_file(
+        Path(__file__).parents[1] / "data" / "qe" / "alas-epsilon-us-soc.in",
+        pseudo_dir=PSEUDO).system
+    assert system.lspinorb is True and system.soc_scale == 1.0
+    assert system.with_soc_scale(0.0).soc_scale == 0.0

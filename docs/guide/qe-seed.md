@@ -208,6 +208,10 @@ density (`startingpot='file'`).
     `&system` for the SCF whose state you write. On iron with DFT+U and
     spin-orbit coupling, `pw.x` then restarts in one iteration, and in 15
     from the `'grad_m'` state. On an arsenic atom it is one against three.
+    A spin-orbit run with `soc_scale` other than 1 (`System.with_soc_scale`)
+    is written with a warning. `pw.x` has no such switch, and with `lspinorb`
+    it always takes the whole coupling. So `pw.x` reads the file as a start
+    and converges to another state. We have not run this restart.
 
     The density can only start an SCF. There is no route that computes bands or a
     density of states from it with no SCF at all. With the same input this costs one

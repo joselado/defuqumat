@@ -672,7 +672,10 @@ def _warn_another_functional(calculation) -> None:
     As atom with spin-orbit coupling in 3 from 1e-8 and in 1 from 1.3e-11
     (``pw.x`` 7.5), while O2 without it restarts alike under both. TB09:
     ``si2-tb09`` in 7 and ``si2-tb09-lsda`` in 13, because ``pw.x``'s ``tb09``
-    calls libxc with a zero Laplacian and ``c = 1`` (P30).
+    calls libxc with a zero Laplacian and ``c = 1`` (P30). A spin-orbit run
+    at ``soc_scale != 1`` (``System.with_soc_scale``) has no ``pw.x``
+    counterpart at all, since ``lspinorb`` takes the whole coupling; that
+    restart was not run.
     """
     import warnings
 
@@ -685,6 +688,20 @@ def _warn_another_functional(calculation) -> None:
             "density (15 iterations against 1 on Fe with DFT+U, 3 against 1 on "
             "an As atom). Converge under noncollinear_gga = 'kubler' for a "
             "state pw.x takes as its own.",
+            stacklevel=3,
+        )
+    system = getattr(calculation, "system", None)
+    soc_scale = float(getattr(system, "soc_scale", 1.0))
+    if getattr(system, "lspinorb", False) and soc_scale != 1.0:
+        # pw.x has no soc_scale: an lspinorb run takes the whole coupling, and
+        # the reduced becsum of soc_scale = 0 is not add_becsum_so's (audit
+        # 2026-11-20 #41). Not measured against pw.x.
+        warnings.warn(
+            f"this state was converged at soc_scale = {soc_scale:g}, and pw.x has "
+            "no such switch: a pw.x run with lspinorb takes the whole spin-orbit "
+            "coupling. pw.x reads the file, but as a start for another "
+            "Hamiltonian, and converges to another state. Write the state of a "
+            "run at soc_scale = 1 for a state pw.x takes as its own.",
             stacklevel=3,
         )
     name = str(getattr(calculation.functional, "meta", "") or "").upper()
