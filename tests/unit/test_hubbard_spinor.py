@@ -291,3 +291,81 @@ def test_the_spinor_symmetriser_keeps_a_spin_orbit_occupation_matrix(pseudo_dir)
                      spin=old_spin, time_reversed=symmetry.time_reversed)
     moved = np.asarray(old.apply(jnp.asarray(ns)))
     assert np.abs(moved - ns).max() > 2e-2
+
+
+_KAGOME = """&control
+ calculation = 'scf'
+/
+&system
+ ibrav = 4, celldm(1) = 10.0, celldm(3) = 1.6, nat = 3, ntyp = 1,
+ ecutwfc = 20, noncolin = .true., lspinorb = .true.,
+ occupations = 'smearing', degauss = 0.02
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Co 58.9 Co.upf
+ATOMIC_POSITIONS crystal
+ Co 0.5 0.0 0.0
+ Co 0.0 0.5 0.0
+ Co 0.5 0.5 0.0
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+def test_the_spinor_average_is_a_projector_on_a_three_fold_orbit():
+    """The spinor ``ns`` average on a kagome orbit, where 8 of 24 operations are 3-cycles.
+
+    The code pairs ``D_s ns D_s^T`` (and ``conj(S_s) ns S_s^T``) with the
+    **inverse** atom permutation, which is ``new_ns`` and ``PAW_symmetrize``
+    with ``s`` relabelled. ``new_ns_nc`` writes ``D_s ns D_s^T`` at
+    ``irt(isym, na)`` itself. On an orbit whose permutations are involutions
+    (hcp Pt, OPEN.md Part XXXI) the two are one sum; on a three-fold orbit
+    they are not (audit 2026-11-20 #44). This checks the property that does not
+    need a reference: applied twice, the code's average changes nothing, while
+    the other pairing, built from the same tables, does not even give a
+    projector. It says nothing about ``pw.x``, which was never run on such a cell.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.hubbard.occupations import build_ns_symmetry
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.paw.symmetry import harmonic_rotations
+    from defuqumat.system.builder import build_system
+    from defuqumat.system.symmetry import atom_mapping, spin_rotations
+
+    system = build_system(parse_pw_input(_KAGOME))
+    group = system.symmetry_group()
+    mapping = np.asarray(atom_mapping(system.cell, system.structure, group))
+    cycles = [not np.array_equal(m[m], np.arange(3)) for m in mapping]
+    assert group.nsym == 24 and sum(cycles) == 8
+
+    l, width = 2, 5
+    setup = SimpleNamespace(types=[0, 0, 0], atoms=[0, 1, 2], noncolin=True,
+                            species=[SimpleNamespace(l=l)], nslot=3, ldmx=width)
+    average = build_ns_symmetry(setup, system.cell, system.structure, group)
+
+    rng = np.random.default_rng(0)
+    ns = rng.normal(size=(2, 2, 3, width, width)) + 1j * rng.normal(
+        size=(2, 2, 3, width, width))
+    ns = ns + np.conj(np.einsum("stnab->tsnba", ns))
+    once = average.apply(jnp.asarray(ns.reshape(4, 3, width, width)))
+    twice = average.apply(once)
+    assert float(jnp.abs(once).max()) > 0.1
+    assert float(jnp.abs(twice - once).max()) < 1e-13
+
+    d = np.asarray(harmonic_rotations(system.cell, group, l)[l])
+    u = np.asarray(spin_rotations(system.cell, group))
+
+    def forward(x):
+        x = np.asarray(x).reshape(2, 2, 3, width, width)
+        out = np.zeros_like(x)
+        for s in range(group.nsym):
+            for a in range(3):
+                out[:, :, a] += np.einsum("ik,ac,cdkl,bd,jl->abij", d[s], u[s].conj(),
+                                          x[:, :, mapping[s, a]], u[s], d[s])
+        return (out / group.nsym).reshape(4, 3, width, width)
+
+    other = forward(ns)
+    assert np.abs(forward(other) - other).max() > 0.1

@@ -162,8 +162,22 @@ class NsSymmetry:
     **inverse** permutation
     while the rotation carries ``s`` itself. For a collinear run ``S_s`` is
     absent, the spin axis is a spectator, and what is left is the expression
-    ``new_ns.f90`` writes; for a spinor run it is the four-component one
-    ``new_ns_nc`` writes, and the spin factor is the only difference.
+    ``new_ns.f90`` writes, ``d(m0,m1) nr(m0,m00) d(m00,m2)`` = ``D^T ns D`` at
+    ``irt(isym, na)``, re-indexed by ``s -> s^-1``. A spinor run uses the same
+    pairing with the spin factor added.
+
+    **That is not the pairing ``new_ns_nc`` writes.** Its orbital factor is
+    ``d(m1,m3) nr(m3,m4) d(m2,m4)`` = ``D ns D^T`` at the same
+    ``irt(isym, na)``, so it pairs ``D_s`` with ``irt(s)`` where this code
+    (and ``new_ns``, and ``PAW_symmetrize``) pairs ``D_s`` with ``irt(s^-1)``.
+    The two sums are the same only when every orbit permutation is its own
+    inverse. That holds on hcp Pt, the cell this branch was checked on against
+    ``pw.x`` (``OPEN.md`` Part XXXI, a 2-cycle), and fails on any three-fold
+    orbit (kagome, a C3 or a 3_1 screw). There the average written here is
+    still a projector, and the ``new_ns_nc`` pairing built from the same tables
+    is not (``tests/unit/test_hubbard_spinor.py``, 8 of 24 operations
+    3-cycles); no ``pw.x`` run on such a cell has been compared, so a
+    disagreement there is not by itself evidence against this code.
     """
 
     __slots__ = (
