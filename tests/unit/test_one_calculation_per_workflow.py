@@ -360,3 +360,47 @@ def test_the_ultracell_reads_its_cut_off_the_basis_calculation(pseudo_dir, monke
     assert len(built) == 1, f"{len(built)} Calculation objects built, not 1"
     # ``for_bands`` may hand the wider solve a copy on a card, sharing every array.
     assert reached[1].basis is reached[0].basis
+
+
+@pytest.mark.parametrize(
+    "extra", ["", _MAGNETIC, "noncolin = .true."], ids=["nspin1", "nspin2", "spinor"]
+)
+def test_the_overlap_metric_reads_nelec_without_a_second_calculation(
+        extra, pseudo_dir, monkeypatch):
+    """``_electrons`` built a whole ``Calculation`` to read ``nelec`` (audit 2026-11-20c #16).
+
+    ``System`` has no ``nelec``, so the ``getattr`` it tried first was always
+    ``None``, and every overlap-route metric built both G sets (and on an
+    augmented dataset ``Q_ij(G)``) after the mesh of states was held. The sum
+    of the valence charges is the number ``Calculation`` holds, to the bit.
+    """
+    from defuqumat.workflows.geometry import _electrons
+
+    system, pseudos = _silicon(extra, pseudo_dir)
+    expected = Calculation(system, pseudos).nelec
+
+    def refuse(self, *args, **kwargs):
+        raise AssertionError("a Calculation was built to read nelec")
+
+    monkeypatch.setattr(Calculation, "__init__", refuse)
+    assert _electrons(system, pseudos) == expected
+
+
+def test_the_overlap_metric_nelec_of_two_paw_species(pseudo_dir, monkeypatch):
+    """Two species with different valence charges, PAW: the same sum, the same order."""
+    from pathlib import Path
+
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.workflows.geometry import _electrons
+
+    cases = Path(__file__).resolve().parents[1] / "data" / "qe"
+    system = build_system(read_pw_input(cases / "alas-paw-berry.scf.in"))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    expected = Calculation(system, pseudos).nelec
+    assert expected == 8.0
+
+    def refuse(self, *args, **kwargs):
+        raise AssertionError("a Calculation was built to read nelec")
+
+    monkeypatch.setattr(Calculation, "__init__", refuse)
+    assert _electrons(system, pseudos) == expected

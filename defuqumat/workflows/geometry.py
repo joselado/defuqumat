@@ -229,9 +229,13 @@ def _by_overlaps(system, pseudos, density, *, divisions, becsum, ns, tau, field,
 
 
 def _electrons(system, pseudos) -> float:
-    from defuqumat.scf.driver import Calculation
+    """``nelec``: the valence charges of the atoms, summed as ``Calculation`` sums them.
 
-    nelec = getattr(system, "nelec", None)
-    if nelec is not None:
-        return float(nelec)
-    return float(Calculation(system, pseudos).nelec)
+    The same expression, in the same order, as ``Calculation.__init__``
+    (``scf/driver.py``), so the number is bit-identical. ``System`` holds no
+    pseudopotentials and so has no ``nelec``; this used to build a second whole
+    ``Calculation`` to read it, both G sets and on an ultrasoft or PAW dataset
+    the ``Q_ij(G)`` table, after the mesh of states was already held (audit
+    2026-11-20c #16).
+    """
+    return float(sum(pseudos[t].z_valence for t in system.structure.types))
