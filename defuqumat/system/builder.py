@@ -1113,6 +1113,7 @@ def system_from_file(path, precision: Precision = DEFAULT_PRECISION) -> System:
 
 def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> System:
     _refuse_unimplemented_switches(pwin)
+    _refuse_unconsumed_cards(pwin)
     _refuse_obsolete_hubbard(pwin)
     _check_calculation(pwin)
     _check_occupations(pwin)
@@ -1792,6 +1793,25 @@ _REFUSED_SWITCHES = (
      "diagonalisation, but the k-points forced to carry the crystal's group "
      "(setup.f90). Here nosym gives the full grid *and* switches sym_rho off, "
      "which is a different calculation"),
+    # Three more that nothing read (audit 2026-11-20b #6). ``gate`` was refused
+    # only inside ``_efield``, behind ``tefield``, while ``setlocal.f90:106``
+    # calls ``add_gatefield`` whenever it is set: with ``block = .true.`` the
+    # barrier ``block_height`` goes into the local potential even at
+    # ``tot_charge = 0`` (``add_gatefield.f90``), so an input with the gate and
+    # no saw-tooth ran here without it.
+    ("control", "trism", "logical",
+     "a 3D-RISM solvent around the cell (PW/src/rism_module.f90, the &RISM "
+     "namelist and the SOLVENTS card, rism_calc3d in electrons.f90). Without "
+     "it the run is an SCF in vacuum"),
+    ("system", "nextffield", "nonzero",
+     "external ionic force fields (Modules/extffield.f90, applied to the "
+     "forces in forces.f90:322). Without them a relaxation runs in a "
+     "different energy landscape"),
+    ("system", "gate", "logical",
+     "the charged plate of a gate (PW/src/add_gatefield.f90, called from "
+     "setlocal.f90 whenever gate is set). Its field needs a charged cell "
+     "(tot_charge), which is refused, and with block = .true. it adds the "
+     "barrier block_height to the local potential even in a neutral cell"),
 )
 
 
@@ -2060,6 +2080,86 @@ def _refuse_unimplemented_switches(pwin: PwInput) -> None:
                 f"-- {explanation}. It is refused rather than ignored, because a "
                 "run that quietly drops it is wrong by far more than the "
                 "agreement with pw.x this code is checked to"
+            )
+
+
+def _card_numbers(card, first: int, name: str) -> list[float]:
+    """Every number on a card's data lines from column ``first`` on, or a
+    ``ValueError`` naming the card when one does not read as a number."""
+    numbers = []
+    for line in card.lines:
+        for token in line.split()[first:]:
+            try:
+                numbers.append(fortran_float(token))
+            except ValueError:
+                raise ValueError(
+                    f"{name} card: {token!r} in {line.strip()!r} is not a number"
+                ) from None
+    return numbers
+
+
+def _refuse_unconsumed_cards(pwin: PwInput) -> None:
+    """Stop on a card that changes the physics and that nothing here reads.
+
+    :data:`defuqumat.io.pwin.CARD_NAMES` accepts every card ``pw.x`` knows, and
+    three of them were parsed and then read by nothing (audit 2026-11-20b #5),
+    each with the condition under which ``pw.x`` acts on it:
+
+    * ``ATOMIC_FORCES``, when any component is nonzero (``textfor``,
+      ``input.f90:1926``). ``pw.x`` adds the forces to every force
+      (``forces.f90:335``) and ``-sum_I F_I . tau_I`` to the total energy
+      (``electrons.f90:1144-1146``), so QE's own ``pw_relax/relax-extfor.in``
+      relaxed here to the force-free CO bond and reported success, where its
+      benchmark ends at a bond of 2.2555 bohr;
+    * ``CONSTRAINTS``, when ``nconstr > 0`` (``lconstrain``,
+      ``input.f90:1298``). ``pw.x`` stops on it with BFGS or a variable cell
+      and applies it in damped dynamics and MD; here a relaxation ran without
+      it. It is refused for every calculation, since a ``System`` built for an
+      SCF can be relaxed afterwards and would not remember the card;
+    * ``TOTAL_CHARGE``, when nonzero: ``card_total_charge`` sets the same
+      ``tot_charge`` as the namelist variable, which is refused when nonzero.
+
+    The others are safe to accept. ``SOLVENTS`` is read by ``pw.x`` only under
+    ``trism``, which is refused; ``ATOMIC_VELOCITIES`` only by molecular
+    dynamics, which is refused; ``ADDITIONAL_K_POINTS`` adds k-points of zero
+    weight, which change no SCF quantity, and their eigenvalues are not
+    computed here.
+    """
+    source = pwin.path or "input"
+    card = pwin.card("ATOMIC_FORCES")
+    if card is not None and any(v != 0.0 for v in _card_numbers(card, 1, card.name)):
+        raise NotImplementedError(
+            f"{source}: the ATOMIC_FORCES card (external forces on the atoms) is "
+            "not implemented. pw.x adds the forces to every force (forces.f90) "
+            "and -sum F.tau to the total energy (electrons.f90); here they would "
+            "be dropped, so a relaxation would reach the geometry without them "
+            "and report success. A card of zeros is accepted"
+        )
+    card = pwin.card("CONSTRAINTS")
+    if card is not None and card.lines:
+        try:
+            nconstr = int(fortran_float(card.lines[0].split()[0]))
+        except (IndexError, ValueError):
+            raise ValueError(
+                f"CONSTRAINTS card: the first line must start with nconstr, got "
+                f"{card.lines[0].strip()!r}"
+            ) from None
+        if nconstr > 0:
+            raise NotImplementedError(
+                f"{source}: the CONSTRAINTS card (constrained ionic motion) is not "
+                "implemented. pw.x stops on it with BFGS or a variable cell "
+                "(input.f90) and applies it in damped dynamics; here a "
+                "relaxation would run without it"
+            )
+    card = pwin.card("TOTAL_CHARGE")
+    if card is not None and card.lines:
+        charge = _card_numbers(card, 0, card.name)[:1]
+        if charge and charge[0] != 0.0:
+            raise NotImplementedError(
+                f"{source}: the TOTAL_CHARGE card asks for a charged cell "
+                f"(tot_charge = {charge[0]}), which is not implemented, as for "
+                "the tot_charge variable: nelec is sum(Z) here, so the run would "
+                "be neutral"
             )
 
 
@@ -2399,11 +2499,6 @@ def _efield(pwin: PwInput) -> tuple | None:
                 "it would silently run with no correction"
             )
         return None
-    if _logical(pwin.get("system", "gate", False)):
-        raise NotImplementedError(
-            "gate = .true. is not implemented: the charged plate needs a "
-            "charged cell (tot_charge), which is refused (add_gatefield.f90)"
-        )
     edir = pwin.get("system", "edir")
     if edir is None or int(edir) not in (1, 2, 3):
         raise ValueError(

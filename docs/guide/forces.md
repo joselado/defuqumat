@@ -210,6 +210,10 @@ some binding in it.
     A potential-only meta-GGA (`tb09`, `bj06`) has no energy functional, so it
     has no forces and no relaxation.
 
+    External forces on the atoms (the `ATOMIC_FORCES` card) and constraints on
+    the motion of the ions (the `CONSTRAINTS` card) give an error, because we do
+    not add them to the forces. The page on your own crystal lists them.
+
     We implement only D2, and D3, Tkatchenko-Scheffler, MBD and XDM give an
     error. `pw.x` runs them with a warning and no correction at all.
 

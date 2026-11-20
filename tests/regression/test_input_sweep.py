@@ -109,6 +109,10 @@ EXPECTED_REFUSALS = {
     "cluster_rs.in": "tot_charge",
     "cluster_rs50.in": "tot_charge",
     "2dcutoff.in": "assume_isolated",
+    # External forces on the atoms (audit 2026-11-20b #5). The card was parsed
+    # and read by nothing, so this relax reached the force-free CO bond and
+    # reported success, where the benchmark ends at 2.2555 bohr.
+    "relax-extfor.in": "ATOMIC_FORCES",
 }
 
 #: QE evaluates arithmetic in an input field (``clib/eval_infix.c``), so

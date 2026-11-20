@@ -253,10 +253,22 @@ Before we trust the numbers of a new crystal, we check four things.
     (`assume_isolated`), two chemical potentials (`twochem`, in `&system` or in
     `&control`), the occupations of an isolated atom (`one_atom_occupations`),
     the constant-cutoff kinetic functional (`qcutz`) and a fixed FFT grid (`nr1`
-    to `nr3s`). The four symmetry switches `no_t_rev`, `force_symmorphic`,
+    to `nr3s`). A 3D-RISM solvent (`trism`), external ionic force fields
+    (`nextffield`) and the charged plate of a gate (`gate`) also give an error.
+    The gate gives an error also without `tefield`, because with
+    `block = .true.` `pw.x` adds a potential barrier even to a neutral cell. The
+    four symmetry switches `no_t_rev`, `force_symmorphic`,
     `use_all_frac` and `nosym_evc` also give an error, because each one removes
     symmetry operations that the code would still use. A value equal to the
     default of `pw.x` gives no error, so an ordinary input never meets these.
+
+    Three cards give an error in the same way. These are external forces on the
+    atoms (`ATOMIC_FORCES`), constraints on the motion of the ions
+    (`CONSTRAINTS`) and a charged cell (`TOTAL_CHARGE`). So the test
+    `pw_relax/relax-extfor.in` of `pw.x` gives an error. A card of zeros,
+    `nconstr = 0` or a charge of zero gives no error, because `pw.x` then does
+    nothing with the card either. `CONSTRAINTS` gives an error also in an SCF,
+    where `pw.x` ignores it, because the same calculator can be relaxed later.
     `calculation = 'md'` and `calculation = 'vc-md'` give an error, because we
     have no molecular dynamics.
 

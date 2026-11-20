@@ -183,6 +183,15 @@ K_POINTS gamma
         ("", "force_symmorphic = .true.", "force_symmorphic"),
         ("", "use_all_frac = .true.", "use_all_frac"),
         ("", "nosym_evc = .true.", "nosym_evc"),
+        # audit 2026-11-20b #6: three more that change the physics and that
+        # nothing read. ``gate`` was refused only behind ``tefield``, while
+        # ``add_gatefield`` runs whenever it is set and adds the block barrier
+        # even at ``tot_charge = 0``.
+        ("trism = .true.", "", "trism"),
+        ("", "nextffield = 1", "nextffield"),
+        ("", "gate = .true.", "gate"),
+        ("", "gate = .true., block = .true., block_1 = 0.1, block_2 = 0.2, "
+             "block_height = 0.1", "gate"),
     ],
 )
 def test_physics_this_code_does_not_have_is_refused_not_ignored(
@@ -208,9 +217,53 @@ def test_the_defaults_of_all_seven_are_silent():
     from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(
-        control="tefield = .false., dipfield = .false.",
-        system="tot_charge = 0.0, assume_isolated = 'none'",
+        control="tefield = .false., dipfield = .false., trism = .false.",
+        system="tot_charge = 0.0, assume_isolated = 'none', nextffield = 0, "
+               "gate = .false.",
     )))
+
+
+# -- cards an input can carry that change the physics (audit 2026-11-20b #5) ---
+
+
+@pytest.mark.parametrize(
+    "card,expected",
+    [
+        # QE's own ``pw_relax/relax-extfor.in``: CO stretched by +-0.2158
+        # Ry/bohr, which ran here with no external force at all.
+        ("ATOMIC_FORCES\n Si 0.21576369 0.0 0.0\n Si -0.21576369 0.0 0.0\n",
+         "ATOMIC_FORCES"),
+        ("CONSTRAINTS\n1\n'distance' 1 2 4.0\n", "CONSTRAINTS"),
+        ("TOTAL_CHARGE\n 0.1\n", "TOTAL_CHARGE"),
+    ],
+)
+def test_a_card_that_changes_the_physics_is_refused_not_ignored(card, expected):
+    """The three were parsed and read by nothing, so a relax ran with no
+    external force and no constraint, and a charged cell ran neutral."""
+    from defuqumat.system.builder import build_system
+
+    text = _MINIMAL.format(control="calculation = 'relax'", system="") + card
+    with pytest.raises(NotImplementedError, match=expected):
+        build_system(parse_pw_input(text))
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        # ``pw.x`` sets ``textfor`` only when a component is nonzero
+        # (``input.f90:1926``), and ``lconstrain`` only for ``nconstr > 0``.
+        "ATOMIC_FORCES\n Si 0.0 0.0 0.0\n Si 0 0 0\n",
+        "CONSTRAINTS\n0\n",
+        "TOTAL_CHARGE\n 0.0\n",
+        # read only for molecular dynamics, which is refused by itself
+        "ATOMIC_VELOCITIES a.u\n Si 0.0 0.0 0.1\n Si 0.0 0.0 -0.1\n",
+    ],
+)
+def test_the_same_cards_at_their_neutral_values_are_silent(card):
+    from defuqumat.system.builder import build_system
+
+    build_system(parse_pw_input(
+        _MINIMAL.format(control="calculation = 'relax'", system="") + card))
 
 
 def test_the_four_symmetry_switches_are_silent_at_their_defaults():

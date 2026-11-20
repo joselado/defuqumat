@@ -25,7 +25,11 @@ from typing import Any
 __all__ = ["Card", "PwInput", "read_pw_input", "parse_pw_input"]
 
 #: Card names pw.x understands. Anything else on a bare line is an error rather
-#: than silently ignored data.
+#: than silently ignored data. A name here is *parsed*, which is not the same as
+#: read: ``ATOMIC_FORCES``, ``CONSTRAINTS`` and ``TOTAL_CHARGE`` change the
+#: physics and nothing consumes them, so ``build_system`` refuses them when they
+#: ask for something (``builder._refuse_unconsumed_cards``, audit 2026-11-20b
+#: #5), and its docstring says why the other unconsumed ones are safe.
 CARD_NAMES = frozenset(
     {
         "ATOMIC_SPECIES",
