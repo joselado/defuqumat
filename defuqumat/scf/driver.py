@@ -1631,8 +1631,9 @@ def gamma_storage_is_consumable(system: System, pseudos) -> bool:
     ``K_POINTS gamma`` halves every plane-wave-sized array -- the
     wavefunctions, ``vkb``, the Davidson subspace -- which on a large cell is
     the difference between a calculation that fits on a card and one that does
-    not. It is consumed for a **norm-conserving** run with **no symmetry**, and
-    substituted away (with a warning) otherwise. Both restrictions are real:
+    not. It is consumed for a **norm-conserving** run with **no symmetry**, no
+    Hubbard term, and neither a spinor nor a spiral, and substituted away (with a
+    warning) otherwise. Each restriction is real:
 
     * **Ultrasoft and PAW.** ``addusdens`` and ``newd`` need their own
       ``fact = 2`` over the augmentation charge, and ``Q_ij(G)`` is tabulated
@@ -1652,6 +1653,10 @@ def gamma_storage_is_consumable(system: System, pseudos) -> bool:
       to the wrong ground state. It is the only one of these that is wrong
       before the run finishes rather than after, which is why it is a
       substitution rather than something left to a consumer to notice.
+    * **A spinor or a spiral.** The two components of a spinor are not related
+      by ``c(-G) = conj(c(G))`` unless the state can be chosen real, which
+      spin-orbit coupling stops, and a spiral's components live on two
+      different spheres.
 
     A run wanting the storage on a symmetric crystal sets ``nosym = .true.``,
     which is what the gain is traded against and is usually worth it: the
@@ -1675,14 +1680,15 @@ def _without_gamma_storage(system: System) -> System:
     """Turn ``K_POINTS gamma`` into an explicit single k-point at the origin.
 
     ``ggen`` keeps only half the G sphere when the calculation is at k = 0,
-    because a real wavefunction has ``c(-G) = conj(c(G))``. That storage is
-    generated here (``basis/gvectors.py``) but it is not *consumed* anywhere:
-    ``vloc_psi`` would need QE's ``vloc_psi_gamma`` packing, the eigensolver
-    QE's real ``regterg`` overlaps, ``calbec``/``addusdens``/``newd`` their
-    ``fact = 2`` doubling, and the symmetry maps a way to follow a rotation that
-    leaves the stored half. None of that exists, so running a gamma-only basis
-    through the SCF would be silently wrong (where it does not simply fail in
-    ``symmetry_maps``).
+    because a real wavefunction has ``c(-G) = conj(c(G))``. Since P68 that
+    storage is consumed where :func:`gamma_storage_is_consumable` allows it, a
+    norm-conserving run with ``nosym``, no Hubbard term and neither a spinor nor
+    a spiral. Everywhere else the pieces it would need do not exist:
+    ``addusdens``/``newd`` their ``fact = 2`` doubling, the Hubbard projections
+    the ``2 Re(sum) - G0`` rule, a spinor a real state, a spiral one sphere, and
+    the symmetry maps a way to follow a rotation that leaves the stored half. So
+    such a run takes this substitution instead of being silently wrong (or
+    failing in ``symmetry_maps``).
 
     The substitution below is exact rather than approximate: the same cell at
     the same cutoffs has the same FFT dimensions and the same physics, and the
@@ -1700,8 +1706,9 @@ def _without_gamma_storage(system: System) -> System:
     warnings.warn(
         "K_POINTS gamma asks for the half-sphere storage of the gamma-point "
         "trick, which this run cannot consume -- it is implemented for a "
-        "norm-conserving calculation with no Hubbard U and nosym = .true., and "
-        "this one is ultrasoft/PAW, carries a U, or uses symmetry (see "
+        "norm-conserving calculation with no Hubbard U, no spinor or spiral "
+        "and nosym = .true., and this one is ultrasoft/PAW, carries a U, is a "
+        "spinor or a spiral, or uses symmetry (see "
         "gamma_storage_is_consumable). "
         "Running at an explicit k = 0 with the full G sphere instead: the "
         "result is the same and the cost is twice the plane waves",
