@@ -11842,3 +11842,28 @@ The fix of #4 and #5 turns the channels of `pxy`, `p`, `CO` and `Pb` per image w
 on a wedge. On the same star with `pxy`, `tip_channels=True`, it costs 1.318 s against 1.074 s before
 (1.23x, same protocol), for the per-point combination of the two channels; without `tip_channels` the
 path is unchanged.
+
+### The momentum route with a tip orbital: basis Grams, not one Gram per energy and channel (audit 2026-11-20 #7, this workstation, 2026-11-20)
+
+The tip plane's Gram matrix of a channel at an energy is `sum_bb' C_b^* C_b' G_bb'`, and only the
+coefficients depend on the energy. `_assemble_momentum` built and stored one Gram matrix per energy and
+per channel, `(nE, nc, nk, nbnd, nbnd)`; it now builds the `nb^2` basis Grams once per plane (one product
+of the stacked `(nb nbnd, npol, ng)` array per k-point) and contracts each channel when it is used. The
+hydrogen sheet, its whole 8x8x1 grid, 16 bands, the tip plane 3 bohr up, `bias=0.2`, one core
+(`taskset -c 0-3`, `OMP_NUM_THREADS=1`), warmed once, then the median of 5 calls; peak by `tracemalloc`
+on one more call:
+
+| tip, energies | before (s) | after (s) | peak before | peak after |
+|---|---|---|---|---|
+| `p`, 21 | 0.597 | 0.588 | 18.9 MB | 5.0 MB |
+| `p`, 41 | 1.099 | 0.917 | 34.7 MB | 5.0 MB |
+| `pz`, 41 | 0.480 | 0.453 | 13.1 MB | 2.7 MB |
+
+The peak no longer grows with the energies. The audit's case (`p`, 21 energies, 900 k-points, 60 bands)
+held 3.3 GB of Grams before and holds 9 x 900 x 60^2 x 16 B = 0.47 GB of basis Grams now. On 27 cases of
+the hydrogen sheet and its spinor (`pz`, `pxy`, `p`, `CO`, `s - pz`, `dz2`, raw and continued, no
+substrate projector and a `z` and an `x` one at polarization 0.7, 21 energies, two heights) the four
+columns agree with the old code to 1.6e-15 of their peak and `least_eigenvalue` to 2.4e-15. What is left
+is `channel_basis` on the exit Gram, redone in every `momentum_weights` call (a quarter of the route at
+41 energies); it depends only on the exit plane and the eigenvalues, and hoisting it is an argument of
+`momentum_weights`, outside this change.

@@ -302,6 +302,86 @@ def test_the_map_over_the_tip_plane_is_the_momentum_trace(spec):
     assert integral == pytest.approx(trace, rel=1e-11)
 
 
+@pytest.mark.parametrize("npol, spin", [(1, None), (2, "z")], ids=["scalar", "spinor"])
+def test_the_momentum_route_builds_basis_grams_once_for_every_energy(monkeypatch, npol, spin):
+    """Audit 2026-11-20 #7: the tip plane's Gram matrix of a channel at an
+    energy is ``sum_bb' C_b^* C_b' G_bb'``, with the basis Grams built once.
+
+    :func:`_assemble_momentum` on synthetic states against the direct form,
+    one :func:`folded_gram` of the combined coefficients per energy and per
+    channel and :func:`momentum_weights` on it, for a ``p`` tip and a hybrid
+    channel and a complex one, five energies, a spinor with a spin-selective
+    substrate too; and
+    the number of :func:`folded_gram` calls does not grow with the energies.
+    Before, it was one per energy and channel and k-point, and the Grams of
+    every energy were held at once.
+    """
+    import defuqumat.workflows.transport as transport
+    from defuqumat.workflows.transport import _assemble_momentum, _substrate_acceptance
+
+    cell = HEXAGONAL
+    kpoints = np.array([[0.0, 0.0, 0.0], [1.0 / 3.0, 1.0 / 3.0, 0.0], [0.2, -0.1, 0.0]])
+    geometry, wavefunctions = _geometry(cell, kpoints, gmax=2.4, seed=31, npol=npol)
+    nk, nbnd = wavefunctions.shape[1:3]
+    eigenvalues = np.stack([np.linspace(-0.05, 0.05, nbnd) + 0.01 * ik
+                            for ik in range(nk)])[None]
+    planewaves = types.SimpleNamespace(miller=lambda _smooth: geometry.miller,
+                                       mask=geometry.mask)
+    monkeypatch.setattr(transport, "build_basis", lambda _system: types.SimpleNamespace(
+        planewaves=planewaves, smooth=None))
+    kset = types.SimpleNamespace(weights=geometry.kweights,
+                                 crystal=lambda _cell: kpoints)
+    calculation = types.SimpleNamespace(
+        system=types.SimpleNamespace(cell=cell, kpoints=kset), noncolin=npol == 2)
+    calls = []
+    original = transport.folded_gram
+    monkeypatch.setattr(transport, "folded_gram",
+                        lambda *a, **k: calls.append(1) or original(*a, **k))
+    exit_height, height = 0.2, 0.71
+    scale = surface_area(cell, 2) / cell.volume
+    projector, _ = _substrate_acceptance(spin, 0.7, npol, 1)
+
+    for spec in ("p", [{"s": 1.0, "pz": -0.6}, "px"], {"px": 1.0, "py": 0.5j}):
+        counts = []
+        for energies in (np.array([0.0]), np.linspace(-0.04, 0.03, 5)):
+            tip = _tip(spec, cell, kappa=0.8 + 0.1 * energies)
+            calls.clear()
+            columns, _ = _assemble_momentum(
+                calculation, wavefunctions, eigenvalues, exit_height=exit_height,
+                heights=[height], exit_axis=2, energies=energies, broadening=0.05,
+                spin=spin, polarization=0.7, method="spectral", smearing="gaussian",
+                degeneracy_tol=1e-6, tip=tip)
+            counts.append(len(calls))
+        assert counts[0] == counts[1], counts
+
+        exit_grams = np.stack([
+            exit_overlap(wavefunctions[0, ik], geometry.miller[ik], exit_height, 2,
+                         cell, npol=npol, projector=projector) for ik in range(nk)])
+        reference = {name: np.zeros((len(energies), nk))
+                     for name in ("weight", "tersoff_hamann", "incoherent")}
+        for ie, energy in enumerate(energies):
+            weights = np.real(amplitude_weights(eigenvalues[0], float(energy), 0.05))
+            for ic in range(tip.nchannels):
+                grams = []
+                for ik in range(nk):
+                    vectors = tip_vectors(geometry.miller[ik], kpoints[ik], cell, tip.frame)
+                    factor = sum(tip.coefficients[ie, ic, ib] * multiplier(name, vectors)
+                                 for ib, name in enumerate(tip.basis))
+                    block = (wavefunctions[0, ik].reshape(nbnd, npol, -1)
+                             * factor[None, None]).reshape(nbnd, -1)
+                    folded, _ = fold_onto_plane(block, geometry.miller[ik], height, 2,
+                                                npol=npol)
+                    grams.append(original(folded, scale, npol=npol, projector=projector))
+                here = momentum_weights(exit_grams, np.stack(grams), geometry.kweights,
+                                        weights, eigenvalues=eigenvalues[0], tol=1e-6)
+                for name in reference:
+                    reference[name][ie] += here[name]
+        for name, value in reference.items():
+            peak = np.abs(value).max()
+            assert peak > 0.0
+            assert np.abs(columns[name][0] - value).max() < 1e-12 * peak, name
+
+
 # --------------------------------------------------------------------------
 # V4: the volume limit is the kinetic energy density
 # --------------------------------------------------------------------------
