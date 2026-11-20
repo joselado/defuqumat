@@ -623,25 +623,74 @@ def covers_a_whole_grid(kpoints: "KPoints", cell: Cell) -> bool:
     so does ``Gamma`` alone. A list that fails is treated as a part of the zone,
     which is the safe direction: a consumer that needs the whole zone refuses
     it (audit 2026-11-20 #11). Host-side, on the k-set's own numbers.
+
+    **The comparison is on grid indices, not on the coordinates.** Each axis's
+    values are clustered within :data:`_WHOLE_GRID_TOL` (1e-5 in crystal units,
+    with 0 and 1 one plane), the clusters must be ``1/n_i`` apart, and every
+    coordinate is then snapped to its index on that axis; ``-k`` is snapped the
+    same way. A list printed to 7 decimals in ``tpiba`` units, or held in single
+    precision, is off the grid by about 1e-7, and the first form of this test,
+    which compared exact 1e-6 buckets, refused a whole 9x9x1 hexagonal grid
+    printed that way (audit 2026-11-20b #33).
     """
     if is_reduced(kpoints):
         return False
     points = np.asarray(kpoints.crystal(cell), dtype=float).reshape(-1, 3)
     if len(points) == 0:
         return False
-    resolution = 1_000_000  # buckets per reciprocal vector: 1e-6 in crystal units
-    keys = np.rint((points - np.floor(points)) * resolution).astype(np.int64) % resolution
-    counts = []
+    tol = _WHOLE_GRID_TOL
+    indices, opposite, counts = [], [], []
     for axis in range(3):
-        values = np.unique(keys[:, axis])
-        gaps = np.diff(np.append(values, values[0] + resolution))
-        if np.any(np.abs(gaps - resolution / len(values)) > 2):
+        planes = _grid_planes(points[:, axis], tol)
+        if planes is None:
             return False
-        counts.append(len(values))
+        n, origin = planes
+        here = _snap_to_planes(points[:, axis], n, origin, tol)
+        there = _snap_to_planes(-points[:, axis], n, origin, tol)
+        if here is None or there is None:
+            return False
+        indices.append(here)
+        opposite.append(there)
+        counts.append(n)
+    keys = np.stack(indices, axis=1)
     rows = {tuple(row) for row in keys.tolist()}
     if not len(rows) == len(points) == int(np.prod(counts)):
         return False
-    return all(tuple(row) in rows for row in ((-keys) % resolution).tolist())
+    return all(tuple(row) in rows for row in np.stack(opposite, axis=1).tolist())
+
+
+#: How far, in crystal units, a coordinate of an explicit list may sit from its
+#: grid plane and still be read as on it (:func:`covers_a_whole_grid`). Far
+#: above a 7-decimal print or single precision (about 1e-7), and far below the
+#: spacing of any mesh a calculation uses (``1/n``, with ``n`` in the hundreds).
+_WHOLE_GRID_TOL = 1.0e-5
+
+
+def _grid_planes(values: np.ndarray, tol: float):
+    """``(n, origin)`` if ``values`` lie on ``n`` planes spaced ``1/n`` apart, mod 1, else None.
+
+    The values are folded into ``[-tol, 1 - tol)``, so a coordinate a hair
+    below 1 joins the plane at 0, and sorted; a gap wider than ``tol`` starts a
+    new plane. ``origin`` is the mean of the first plane.
+    """
+    folded = values - np.floor(values)
+    folded = np.sort(np.where(folded >= 1.0 - tol, folded - 1.0, folded))
+    starts = np.concatenate([[0], np.flatnonzero(np.diff(folded) > tol) + 1])
+    planes = np.array([part.mean() for part in np.split(folded, starts[1:])])
+    n = len(planes)
+    gaps = np.diff(np.append(planes, planes[0] + 1.0))
+    if np.any(np.abs(gaps - 1.0 / n) > tol):
+        return None
+    return n, float(planes[0])
+
+
+def _snap_to_planes(values: np.ndarray, n: int, origin: float, tol: float):
+    """Each value's plane index in ``0..n-1``, or None if one lies off every plane."""
+    steps = (values - origin) * n
+    index = np.rint(steps)
+    if np.any(np.abs(steps - index) > tol * n):
+        return None
+    return index.astype(np.int64) % n
 
 
 def for_spin(kpoints: "KPoints", nspin: int) -> "KPoints":

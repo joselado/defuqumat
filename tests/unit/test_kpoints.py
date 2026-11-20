@@ -196,3 +196,44 @@ def test_the_flag_survives_for_spin():
 
     points = KPoints.automatic((4, 4, 4), (1, 1, 1), FCC, rotations=_E)
     assert is_reduced(for_spin(points, 2)) is True
+
+
+@pytest.mark.parametrize("ibrav, celldm, mesh, shift", [
+    (4, [5.8, 0, 3.0, 0, 0, 0], (9, 9, 1), (0, 0, 0)),
+    (4, [5.8, 0, 3.0, 0, 0, 0], (7, 7, 1), (0, 0, 0)),
+    (2, [10.2, 0, 0, 0, 0, 0], (11, 11, 1), (0, 0, 0)),
+    (2, [10.2, 0, 0, 0, 0, 0], (64, 1, 1), (1, 0, 0)),
+])
+def test_a_whole_grid_printed_to_seven_decimals_is_still_a_whole_grid(ibrav, celldm, mesh, shift):
+    """A whole grid written in ``tpiba`` units to 7 decimals, as ``pw.x`` prints it (audit 2026-11-20b #33).
+
+    ``covers_a_whole_grid`` compared coordinates in exact 1e-6 buckets, so a
+    print error of about 1e-7 split one plane into two buckets, and the whole
+    9x9x1 hexagonal grid and the whole 11x11x1 grid of an fcc cell were read as
+    possible wedges and refused by the whole-zone traces. The grid is now
+    compared on snapped plane indices. The time-reversal half of the same
+    printed grid, with equal weights, is still refused.
+    """
+    from defuqumat.config import SINGLE
+    from defuqumat.system.kpoints import covers_a_whole_grid
+
+    cell = Cell.from_ibrav(ibrav, celldm)
+    points, weights = monkhorst_pack(mesh, shift)
+    printed = np.round(np.asarray(cell.k_to_cartesian(np.asarray(points))), 7)
+    for precision in (None, SINGLE):
+        options = {} if precision is None else {"precision": precision}
+        whole = KPoints.from_cartesian(printed, weights, **options)
+        assert covers_a_whole_grid(whole, cell), precision
+
+    crystal = np.asarray(points)
+    keep, seen = [], set()
+    for i, k in enumerate(crystal):
+        key = tuple(np.round((k - np.floor(k)) * np.asarray(mesh) * 2).astype(int) % (2 * np.asarray(mesh)))
+        minus = tuple(np.round((-k - np.floor(-k)) * np.asarray(mesh) * 2).astype(int) % (2 * np.asarray(mesh)))
+        if minus in seen:
+            continue
+        seen.add(key)
+        keep.append(i)
+    half = KPoints.from_cartesian(printed[keep], np.full(len(keep), 1.0))
+    assert len(keep) < len(crystal)
+    assert not covers_a_whole_grid(half, cell)
