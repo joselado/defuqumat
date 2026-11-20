@@ -292,8 +292,12 @@ itself needs 0.016 s.
     works, and Elk run with `dft+u` then starts this matrix at zero. The code computes the
     potential of Elk for the LDA (`xctype` 2 and 3) and for the PBE family of Elk
     (`xctype` 20, 21 and 22). A noncollinear state with PBE, a functional of
-    libxc, a meta-GGA, a finite nucleus and an external magnetic field give an
-    error. Some switches of Elk change its potential in a way the code does not
+    libxc, a meta-GGA and a finite nucleus give an error. An external magnetic
+    field in the template (`bfieldc` or `bfcmt`) does not give an error. The
+    code writes the magnetic field of exchange and correlation alone, and Elk
+    adds its own external field when it computes the potential at the end of
+    each loop. So the first loop of Elk runs without the external field, and
+    the later loops have it. Some switches of Elk change its potential in a way the code does not
     compute, so they also give an error. These are a constant electric field
     (`tefield`) in any template, a scaled spin exchange-correlation (`sxcscf`)
     and `nosource` in a spin-polarized template, and the smoothing of the

@@ -55,7 +55,11 @@ constant electric field (``tefield``), the scaled spin exchange-correlation
 (``sxcscf``) and ``nosource`` on a spin-polarized state, and the muffin-tin
 gradient smoothing (``msmgmt``, ``stable``) under a GGA. External magnetic
 fields are not part of what is returned: ``B_s`` is ``B_xc`` here, and Elk
-adds ``bfieldc`` and ``bfcmt`` from its own input in ``genbs`` every loop.
+adds ``bfieldc`` and ``bfcmt`` from its own input in ``genbs``, which runs
+inside ``potks`` at the end of each loop. So Elk's first diagonalisation from
+a written state runs on ``B_s = B_xc`` without the field (``gndstate.f90``
+reads the state and calls ``genevfsv`` with no ``genbs`` between), and the
+field is there from the second on (audit 2026-11-20 #21).
 
 **The group** is Elk's (:func:`elk_space_group`, ``findsymcrys``), not QE's,
 with every translation of a non-primitive cell, the template's ``symtype``

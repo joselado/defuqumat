@@ -13,7 +13,8 @@ Outside the spheres the pseudo density is the all-electron one. This module
 evaluates that density in Elk's representation -- a real-harmonic expansion on
 each muffin tin's logarithmic mesh and values on the interstitial grid -- and
 builds Elk's Kohn-Sham potential from it (:mod:`defuqumat.io.elk_potential`,
-without external fields: Elk adds its own ``bfieldc``/``bfcmt`` in ``genbs``),
+without external fields: Elk adds its own ``bfieldc``/``bfcmt`` in ``genbs``
+at the end of its first loop, so that loop runs without them),
 so the ``STATE.OUT`` written is one Elk's ``task = 1`` starts from directly.
 The user's suggestion (2026-11-17); measured in ``PLAN.md`` P181.
 
