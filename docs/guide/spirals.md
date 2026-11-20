@@ -228,6 +228,12 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
     `gradients=True`, gives an error under a magnetic field or a constrained
     moment, because the energy of the field is not part of the total energy.
+    It also gives an error with a potential-only meta-GGA (`tb09`, `bj06`) and
+    under `nosource`, because there the SCF does not minimise any energy. With
+    DFT+U on a norm-conserving spiral it works: the Hubbard projectors move
+    with $\mathbf q$, and the Hubbard energy is part of the energy we
+    differentiate. On a hydrogen chain with $U = 4$ eV it agrees with the slope
+    of two converged energies at $q \pm 0.01$ to $4\times10^{-6}$ Ry.
     On large cells above `DEFUQUMAT_AUG_MAX_BYTES` the augmentation charge is
     kept as a radial table. $dE/d\mathbf q$ works there too. It agrees with the
     stored table to 4e-11 Ry per unit of $\mathbf q$.

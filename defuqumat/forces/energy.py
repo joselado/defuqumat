@@ -483,8 +483,9 @@ def reject_single_band_side(calculation, what: str | None = None) -> None:
     A gradient taken through a float32 ``H|psi>`` carries its round-off as a
     plausible force, stress, response or ``dE/dq``. Called by
     :func:`reject_potential_only`, the gate every consumer of :func:`energy_at`
-    shares, and by the spiral's ``dE/dq`` (:mod:`defuqumat.forces.spiral`),
-    which differentiates its own frozen energy and does not pass that gate.
+    shares, and through it by the spiral's ``dE/dq``
+    (:mod:`defuqumat.forces.spiral`), which differentiates its own frozen energy
+    and calls that gate itself.
 
     ``what`` names a non-SCF consumer that is refused for the same reason --
     the topological invariants, the orbital magnetization and the anisotropy

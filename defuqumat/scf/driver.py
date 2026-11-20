@@ -4955,6 +4955,13 @@ class Calculation:
             moved.projectors = moved.projector_core.at_positions(
                 self.system.structure.positions, qq=self.projectors.qq
             )
+            # A DFT+U spiral's ``wfcU`` is built on the two shifted spheres
+            # (:meth:`_build_hubbard_projectors`), so the occupation matrix it
+            # measures moves with ``q`` exactly as ``vkb`` does, and the
+            # Hubbard energy's part of ``dE/dq`` comes through here (audit
+            # 2026-11-20b #1).
+            if self.hubbard is not None:
+                moved.wfcU = moved._build_hubbard_projectors(kcart)
             return moved
 
         # ``spiral_q`` is a *static* field -- it decides array lengths -- so it
@@ -5019,6 +5026,13 @@ class Calculation:
             system.structure.positions, qq=self.projectors.qq,
             lazy=self.projector_storage == "rebuild", rows=self.projector_rows,
         )
+        # ``wfcU`` carries the two spheres, so a new ``q`` needs new Hubbard
+        # projectors, as a new k-list does in :meth:`at_kpoints`. Kept, the old
+        # ones are indexed against the old spheres' plane waves: a shape error
+        # when the padded width moves, and a silently wrong ``ns`` when it does
+        # not (audit 2026-11-20b #2).
+        if self.hubbard is not None:
+            moved.wfcU = moved._build_hubbard_projectors()
         return moved
 
     @property
