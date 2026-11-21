@@ -27,6 +27,9 @@ from defuqumat.system.kpoints import KPoints
 pytestmark = pytest.mark.unit
 
 
+# ``nosym`` keeps the k-set of ``with_positions`` the parent's: with the point
+# group on, moving an atom changes the wedge, and the plane-wave setup the
+# child freezes was enumerated for the parent's k-points.
 SILICON = """
 &control
   calculation = 'scf'
@@ -47,9 +50,6 @@ K_POINTS automatic
  2 2 2 0 0 0
 """
 
-# ``nosym`` keeps the k-set of ``with_positions`` the parent's: with the point
-# group on, moving an atom changes the wedge, and the plane-wave setup the
-# child freezes was enumerated for the parent's k-points.
 RELAXED_MAE = "tests/data/qe/co-tetragonal-relaxed-mae.in"
 MAGNETOELECTRIC = "tests/data/qe/alas-magnetoelectric.in"
 XZ = ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
@@ -150,6 +150,26 @@ def test_a_child_does_not_read_the_checkpoint_of_its_parent(
     assert len(said) == 1 and "checkpoint_dir" in said[0] and "mixing_from" in said[0]
 
 
+def test_with_spin_drops_the_directory_from_the_options_it_rescales(
+        pseudo_dir, monkeypatch, tmp_path):
+    """``with_spin`` hands ``_derived`` its own dictionary, with ``nbnd`` rescaled.
+
+    The drop is made on the dictionary the child is built with, so this
+    route does not get past it with the parent's options copied whole.
+    """
+    parent = _parent(pseudo_dir, tmp_path, nbnd=8)
+    (tmp_path / SCF_CHECKPOINT).write_bytes(b"")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        child = parent.with_spin(4)
+    assert child.defaults["nbnd"] == 16, "a spinor band holds one electron"
+    calls = _record_run_scf(monkeypatch)
+    child.get_scf()
+    assert "checkpoint_dir" not in calls[-1] and "mixing_from" not in calls[-1]
+    assert calls[-1]["nbnd"] == 16
+    assert calls[-1]["starting_from"] is parent._scf
+
+
 def test_the_warning_names_the_cure(pseudo_dir, tmp_path):
     parent = _parent(pseudo_dir, tmp_path)
     with pytest.warns(UserWarning) as caught:
@@ -184,6 +204,14 @@ def test_the_parent_keeps_its_own_directory(pseudo_dir, monkeypatch, tmp_path):
         parent.get_scf()
     assert calls[-1]["checkpoint_dir"] == tmp_path
     assert calls[-1]["mixing_from"] == tmp_path
+
+    # Its own relaxation too: ``run_relax`` names a ``checkpoint_dir``, the
+    # restart directory of the relaxation, and the guide says it is this one.
+    from defuqumat.workflows.relax import run_relax
+
+    relaxation = parent._defaults_for(run_relax, {})
+    assert relaxation["checkpoint_dir"] == tmp_path
+    assert "mixing_from" not in relaxation
 
 
 def test_a_child_checkpoints_in_a_directory_named_at_its_own_call(
