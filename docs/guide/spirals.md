@@ -245,7 +245,10 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     is not derived. It gives an error for a $\mathbf q$ in the reciprocal lattice,
     because that is a uniform magnet, and for a uniform magnet you call
     `get_first_order_soc()` instead. It also gives an error for a spiral
-    converged under a field or a constraint.
+    converged under a field or a constraint. It gives an error too when the
+    bands are in single precision, with `band_precision="single"` or `"mixed"`
+    or with `DEFUQUMAT_BAND_PRECISION`, because this energy is a sum of terms
+    of both signs and we have not measured it in single precision.
 
     The fit of a Heisenberg model to $E(\mathbf q)$ is `heisenberg_exchange` in
     `defuqumat.workflows.spiral`. It gives an error for a shell vector that is not

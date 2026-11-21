@@ -198,9 +198,24 @@ def spiral_spin_orbit_energy(
     ``calculation`` is the spiral's own, used rather than a second one built
     beside it (``notes/GPU-MEMORY-NEXT.md`` item 20); ``k_batch`` is then its.
     """
-    from defuqumat.workflows.anisotropy import _first_order_operator
+    from defuqumat.forces.energy import reject_single_band_side
+    from defuqumat.workflows.anisotropy import (
+        _first_order_operator,
+        _refuse_single_band_side,
+    )
     from defuqumat.workflows.nscf import fixed_density_states
 
+    # The band side is the calculation's when one is handed over, and the
+    # default one otherwise, which ``fixed_density_states`` builds with (I119,
+    # audit 2026-11-20c #14). Asked first, before anything is diagonalised.
+    what = "the first-order spin-orbit energy of a spin spiral"
+    if calculation is not None:
+        reject_single_band_side(calculation, what)
+    else:
+        _refuse_single_band_side(
+            system, what,
+            "the answer is a sum over k of terms of both signs, which is not "
+            "measured there")
     _refuse(system, pseudos)
     if calculation is not None:
         system, k_batch = calculation.system, calculation.k_batch

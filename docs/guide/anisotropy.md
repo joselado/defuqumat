@@ -183,6 +183,14 @@ on the torque, in Ry per radian.
     `get_relaxed_orientation` do take PAW on the one-file route. They also take
     a genuinely noncollinear first run, and turn its texture as it is.
 
+    All the calls of this page that diagonalize at a fixed density give an
+    error when the bands are in single precision, meaning
+    `DEFUQUMAT_BAND_PRECISION` set to `single` or `mixed`. These are
+    `get_anisotropy`, `get_force_theorem`, `get_first_order_soc`, `get_torque`,
+    `get_orientation_torque` and `get_relaxed_orientation`. The reason is that
+    the anisotropy is a small difference of band energies, of the size of the
+    round-off of single precision.
+
     `rotate_moments` needs a magnetic noncollinear run with spin-orbit coupling,
     so it gives an error without `lspinorb` or with `soc_scale = 0`, where every
     orientation has the same energy and the step would only follow noise. It

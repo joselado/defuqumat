@@ -475,7 +475,11 @@ def _refuse_system(
 
 
 
-def _refuse_single_band_side(system) -> None:
+def _refuse_single_band_side(
+    system,
+    what: str = "a force-theorem anisotropy or torque",
+    reason: str = "the answer is a difference of band energies its round-off reaches",
+) -> None:
     """The anisotropy and the torque are refused with a single-precision band side.
 
     Each builds its own calculation in :func:`~defuqumat.workflows.nscf.
@@ -483,16 +487,24 @@ def _refuse_single_band_side(system) -> None:
     ``DEFUQUMAT_BAND_PRECISION=single`` reached them. The answer is a band-energy
     difference of 1e-5 Ry out of 1e2, or its derivative, where the float32
     round-off is the same size; refused before anything is diagonalised (I119).
+
+    ``what`` and ``reason`` name the other legs that solve at a fixed density
+    the same way and had no gate (audit 2026-11-20c #14):
+    :func:`relax_orientation`, which calls ``_orientation_torque`` and not the
+    gated :func:`run_orientation_torque`, :func:`frozen_expectation`, and
+    :func:`~defuqumat.workflows.spiral_soc.spiral_spin_orbit_energy` when it
+    builds its own calculation. A leg handed a calculation asks that object
+    instead (:func:`~defuqumat.forces.energy.reject_single_band_side`).
     """
     from defuqumat.config import resolve_band_precision
 
     band = resolve_band_precision("default")
     if band.real != system.cell.precision.real:
         raise NotImplementedError(
-            f"a force-theorem anisotropy or torque is not computed with the band "
+            f"{what} is not computed with the band "
             f"side in {band.name} precision (DEFUQUMAT_BAND_PRECISION): the mode "
-            "is checked for the SCF only, and the answer is a difference of band "
-            "energies its round-off reaches. Unset it or set it to 'double'")
+            f"is checked for the SCF only, and {reason}. Unset it or set it to "
+            "'double'")
 
 def run_force_theorem(
     system: System,
@@ -1348,6 +1360,10 @@ def frozen_expectation(
     with the rest of :func:`_refuse_system`: its one-centre terms carry
     ``soc_scale`` too (``build_paw``'s small component) and are not in ``E1``.
     """
+    _refuse_single_band_side(
+        system, "the first-order spin-orbit term",
+        "the answer is an expectation value of about 1e-7 Ry, the size of its "
+        "round-off")
     from defuqumat.forces.energy import _spinor_projector_energies
     from defuqumat.response.walk import store_rows
     from defuqumat.scf.potential import as_potential_components
@@ -2051,6 +2067,10 @@ def relax_orientation(
     (P60 measured the entropy at 55 per cent of the band energy's slope on
     tetragonal cobalt at ``degauss = 0.02``).
     """
+    _refuse_single_band_side(
+        system, "an orientation relaxation",
+        "the torque it follows is a derivative of the band energy its "
+        "round-off reaches")
     from defuqumat.relax.bfgs import BFGSSettings
     from defuqumat.relax.registry import get_ion_dynamics
     from defuqumat.workflows.spiral import _first_step_scale

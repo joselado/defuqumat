@@ -370,7 +370,10 @@ several cards are in
     carries its round-off as a plausible force. The topological invariants,
     the Berry-phase polarization, the Kubo conductivities, the orbital
     magnetization, the magnetic anisotropy and the torque also give an error
-    there. This
+    there. So do the relaxation of the orientation
+    (`get_relaxed_orientation`), the first-order spin-orbit term
+    (`get_first_order_soc`) and the first-order spin-orbit energy of a spiral
+    (`get_spiral_spin_orbit_energy`). This
     also holds for a `Calculator` built with `"mixed"`, which keeps its
     single-precision setup. For these, you converge again in double
     precision, starting from the single-precision result with
