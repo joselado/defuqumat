@@ -971,7 +971,8 @@ def _clean(vector) -> np.ndarray:
     return np.where(np.abs(vector) < 1.0e-14, 0.0, vector)
 
 
-def _with_quantization_axis(system: System, direction) -> System:
+def _with_quantization_axis(system: System, direction,
+                            turning_wedge: bool = False) -> System:
     """The same run with its magnetic texture turned rigidly onto ``direction``.
 
     **A rigid rotation of the whole texture, not one pair of angles for every
@@ -1026,6 +1027,15 @@ def _with_quantization_axis(system: System, direction) -> System:
     an axial vector perpendicular to the direction the group was built around
     and therefore not invariant under it -- a response on a reduced k-set, with
     nothing symmetrising it.
+
+    ``turning_wedge`` is the one exception, and only the two one-shot torques
+    set it (:func:`run_torque`, :func:`run_orientation_torque`): a system from
+    :meth:`~defuqumat.system.builder.System.with_turning_moments` is turned
+    without ``nosym``. Its k-set is cut by the identity and the inversion
+    alone, ``_respin_kpoints`` rebuilds it with that same pair at every
+    orientation, so the turned system keeps the wedge bitwise, and the
+    inversion leaves ``dH/dtheta`` alone (:func:`_require_nosym_to_turn` has
+    the argument and the numbers).
     """
     own = np.asarray(_reference_axis(system), dtype=float)
     wanted = np.asarray(direction, dtype=float)
@@ -1035,11 +1045,11 @@ def _with_quantization_axis(system: System, direction) -> System:
         # having defaulted to the system's own axis. Returned untouched so
         # that a single-direction run never rebuilds its k-points at all.
         return system
-    _require_nosym_to_turn(system, own)
+    _require_nosym_to_turn(system, own, turning_wedge)
     return _turn(system, _rotation_taking(own, wanted), wanted)
 
 
-def _with_rotation(system: System, rotation) -> System:
+def _with_rotation(system: System, rotation, turning_wedge: bool = False) -> System:
     """The same run with its magnetic texture turned rigidly by ``rotation``.
 
     :func:`_with_quantization_axis` for a rotation given whole rather than as
@@ -1047,13 +1057,14 @@ def _with_rotation(system: System, rotation) -> System:
     whenever the rotation is that one, and this one also carries a turn about
     the reference axis, which a texture that is not collinear feels. Every
     reason that function's docstring gives applies here unchanged, the
-    quantization axis and the ``nosym`` requirement above all.
+    quantization axis and the ``nosym`` requirement above all, with the same
+    ``turning_wedge`` exception.
     """
     rotation = np.asarray(rotation, dtype=float)
     if np.max(np.abs(rotation - np.eye(3))) <= DIRECTION_TOL:
         return system
     own = np.asarray(_reference_axis(system), dtype=float)
-    _require_nosym_to_turn(system, own)
+    _require_nosym_to_turn(system, own, turning_wedge)
     wanted = rotation @ own
     return _turn(system, rotation, wanted / np.sqrt(np.sum(wanted**2)))
 
@@ -1080,7 +1091,8 @@ def _turned_on_its_own_wedge(system: System, direction) -> System:
     The torque and the frozen expectation value still need ``nosym``
     (:func:`_require_nosym_to_turn`): they differentiate a wedge sum in the
     direction, and ``dH/dtheta`` is an axial vector the group of the direction
-    does not leave alone.
+    does not leave alone. The two one-shot torques also take the wedge of
+    ``with_turning_moments``, whose two operations do leave it alone.
     """
     from defuqumat.system.wedge import wedge_group
 
@@ -1133,7 +1145,8 @@ def _require_a_whole_grid_for_a_torque(system: System, what: str) -> None:
         "this k-set is the wedge of the moment's magnetic group, which does not "
         "leave dH/dtheta alone, so it needs nosym = .true. (the whole grid), or a "
         "run from Calculator.with_turning_moments(), whose identity-and-inversion "
-        "wedge is complete for an axial vector")
+        "wedge is complete for an axial vector (get_torque and "
+        "get_orientation_torque; get_relaxed_orientation needs nosym)")
 
 
 def _require_a_whole_zone_to_project(system: System) -> None:
@@ -1166,20 +1179,69 @@ def _require_a_whole_zone_to_project(system: System) -> None:
         )
 
 
-def _require_nosym_to_turn(system: System, own) -> None:
-    """The refusal :func:`_with_quantization_axis` explains, in one place."""
-    if not system.nosym:
-        own = tuple(np.round(own, 6))
-        raise ValueError(
-            f"turning the quantization axis away from the system's own "
-            f"angle1/angle2 ({own}) needs nosym = .true.: a magnetic "
-            "noncollinear run reduces its k-grid with the magnetic symmetry "
-            "group, which depends on where the moment points, so the rotated "
-            "run would be sampled on a different wedge from the one it is "
-            "compared against -- and a torque is a derivative of a wedge sum "
-            "with respect to a direction the wedge is not symmetric in. QE's "
-            "own force-theorem example sets nosym for this reason"
+def _require_nosym_to_turn(system: System, own, turning_wedge: bool = False) -> None:
+    """The refusal :func:`_with_quantization_axis` explains, in one place.
+
+    **``turning_wedge`` lets a** ``with_turning_moments`` **system through, and
+    only the two one-shot torques pass it** (audit 2026-11-20c #13). Until then
+    such a system was refused here at every turned orientation, although
+    :func:`_require_a_whole_grid_for_a_torque`, its message and the guide
+    offered it. Its wedge is cut by the identity and the inversion without time
+    reversal (:func:`~defuqumat.system.symmetry.orientation_free_symmetries`),
+    which are symmetries of ``H(theta)`` at every orientation, so they commute
+    with ``dH/dtheta`` and ``sum_k w_k <psi|dH/dtheta|psi>`` on the wedge is
+    the whole grid's. That holds for the **total** torque of a rigid turn,
+    which is what both routes return: an inversion that swaps two magnetic
+    atoms maps the sum onto itself, where a decomposition by atom would not be
+    kept (the reason the projected force theorem refuses every wedge). The
+    density handed over has to have that inversion too, as the density of a
+    first leg run on the same crystal with symmetry has; nothing here checks a
+    density that broke it.
+
+    Measured, wedge against ``nosym``, both arms on the same cores. Tetragonal
+    cobalt (``co-tetragonal-anisotropy-soc.in``, 10 points against 18, from the
+    converged scalar-relativistic density): the orientation torque at Euler
+    angles ``(0.4, 0.7, 0.3)`` agrees to 2.2e-11 Ry/rad on 3.7e-5 and the band
+    energy to 1.8e-15 Ry, and ``run_torque`` at 45 degrees to 1.0e-11 on
+    4.06e-5. The control is the wedge of the unturned moment's magnetic group
+    (6 points) kept at the same rotation, the wedge this refusal exists for: it
+    is 3.6e-5 away, as far as the torque is large. Hexagonal cobalt at
+    ``ecutwfc = 12`` from the starting density, whose two atoms the inversion
+    swaps (10 against 18): 1.2e-11 on 6.3e-5 and 4.1e-11 on 7.0e-5.
+
+    Not lifted, each for want of a number or of a route: a PAW dataset (the
+    caller passes ``turning_wedge = False``; the turning group is measured on
+    ultrasoft cells only, as ``rotate_moments`` has it),
+    :func:`frozen_expectation` (measured equal to 3.9e-12 on 7.6e-7 on the same
+    cell, and left for the user to lift), and :func:`relax_orientation`, which
+    refuses at its door because ``Calculation.with_texture`` refuses a turn
+    with symmetry.
+    """
+    if system.nosym:
+        return
+    turning = bool(getattr(system, "turning_moments", False))
+    if turning_wedge and turning:
+        return
+    own = tuple(float(x) for x in np.round(own, 6))
+    message = (
+        f"turning the quantization axis away from the system's own "
+        f"angle1/angle2 ({own}) needs nosym = .true.: a magnetic "
+        "noncollinear run reduces its k-grid with the magnetic symmetry "
+        "group, which depends on where the moment points, so the rotated "
+        "run would be sampled on a different wedge from the one it is "
+        "compared against -- and a torque is a derivative of a wedge sum "
+        "with respect to a direction the wedge is not symmetric in. QE's "
+        "own force-theorem example sets nosym for this reason"
+    )
+    if turning:
+        message += (
+            ". The wedge of with_turning_moments() is taken at a turned "
+            "orientation by get_torque and get_orientation_torque on a "
+            "norm-conserving or ultrasoft dataset only, where it is measured "
+            "against nosym; a PAW dataset and the first-order term "
+            "(get_first_order_soc) are not"
         )
+    raise ValueError(message)
 
 
 def _turn(system: System, rotation, wanted) -> System:
@@ -1477,7 +1539,9 @@ def run_torque(
     # The quantization axis follows the moment, exactly as it must for
     # ``run_force_theorem`` -- and here it is also what makes the derivative
     # clean, since a *static* axis is a constant the gradient passes through.
-    system = _with_quantization_axis(system, tuple(direction))
+    # A ``with_turning_moments`` system turns on its own wedge; PAW never
+    # reaches here (``_refuse_system`` above, with no ``becsum``).
+    system = _with_quantization_axis(system, tuple(direction), turning_wedge=True)
     _require_a_whole_grid_for_a_torque(system, "a magnetic torque")
     rotated = nc_magnetization_from_lsda(density, tuple(direction))
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
@@ -1737,7 +1801,11 @@ def _orientation_torque(system, pseudos, density, rotation, nbnd, conv_thr,
         None if values is None else _reference_texture_of(values, density, own)
         for values in becsum
     )
-    turned = _with_rotation(system, rotation)
+    # A ``with_turning_moments`` system turns on its own wedge, except on a
+    # PAW dataset, where that wedge has no measurement against ``nosym``.
+    turned = _with_rotation(
+        system, rotation,
+        turning_wedge=not any(pseudo.is_paw for pseudo in pseudos))
     _require_a_whole_grid_for_a_torque(turned, "an orientation torque")
     calculation, turned, eigenvalues, wavefunctions = fixed_density_states(
         turned, pseudos, rotate_texture(texture, rotation), nbnd=nbnd,
@@ -1990,6 +2058,19 @@ def relax_orientation(
     from defuqumat import eager
     from defuqumat.forces.torque import frozen_generators, project_out
 
+    if not system.nosym and getattr(system, "turning_moments", False):
+        # Refused here and not at the second step: every one-shot after the
+        # first turns the first one's calculation (``Calculation.with_texture``),
+        # which refuses a turn on a run with symmetry, so the relaxation used
+        # to pay for one diagonalisation and then stop (audit 2026-11-20c #13).
+        raise ValueError(
+            "relax_orientation needs nosym = .true.: it turns one calculation "
+            "from step to step (Calculation.with_texture), which is not "
+            "written for a run with symmetry, so a run from "
+            "with_turning_moments() would stop at its second step. "
+            "get_torque and get_orientation_torque take that run, one "
+            "orientation at a time"
+        )
     start = _checked_rotation(rotation)
     free = np.asarray(free, dtype=float).reshape(3)
     # The generators to hold, in the source texture's frame, where ``R = 1``;

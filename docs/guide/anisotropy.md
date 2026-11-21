@@ -150,8 +150,15 @@ on the torque, in Ry per radian.
     `get_relaxed_orientation`) need `nosym` at every orientation, the input's
     own included, because a torque is a derivative of a sum over k in the
     direction of the moment, and a wedge of the magnetic group does not keep it.
-    A run from `with_turning_moments()` also works, because its wedge has only
-    the identity and the inversion. For `get_anisotropy`, a first run whose magnetization is genuinely
+    `get_torque` and `get_orientation_torque` also run from
+    `with_turning_moments()`, at every orientation, because its wedge has only
+    the identity and the inversion, and the inversion leaves a torque unchanged.
+    On tetragonal cobalt this wedge has 10 of the 18 k-points, and the torque
+    is the same as with `nosym` to $2\times10^{-11}$ Ry per radian. With a PAW
+    dataset a turned orientation still needs `nosym`, because we checked the
+    wedge only on ultrasoft cells. `get_relaxed_orientation` always needs
+    `nosym`, because it turns one calculation from step to step, and this is
+    not written for a run with symmetry. For `get_anisotropy`, a first run whose magnetization is genuinely
     noncollinear gives an error, because the moment is laid along one axis.
 
     A PAW dataset needs the one-file route, meaning the same fully relativistic
