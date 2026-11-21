@@ -9892,3 +9892,39 @@ energy of the uninterrupted run.
 
 A cosmetic point seen in the same work: the drift warning of `run_relaxed_anisotropy` prints
 its direction as `np.float64(0.0)`.
+
+## 11. Eighteen slow tests fail at master on the Triton nodes, in 15 files **[open 2026-11-21, measured at master `e22a1c5d` and at `ceedcaf6`, not investigated]**
+
+**What was measured.** The 99 slow files that the audit fixes reach were run on Triton
+(`batch-csl`, 8 CPUs per file, array job 21740810 at `ceedcaf6`), and the 15 files with
+failures were then run at master `e22a1c5d` (jobs 21742448 and 21742528). **The same 18 tests
+fail at both commits, each with the same number to every printed digit**, so the branch
+`audit-fixes-1120` causes none of them. The list, with what each read, is in `PLAN.md` P183,
+"The slow files were then run". By kind:
+
+- A bound missed by a small factor: `test_anisotropy.py` (7.24e-06 against 1e-06),
+  `test_response.py` (1.94e-06 against 1e-06), `test_ultracell_stm.py` (4.37e-05 against
+  1e-05), `test_spiral_relaxation.py` (1.3e-09 against 1e-09), `test_scf_restart.py`
+  `[secant-12]` (6.8e-09 against 1e-09), `test_elk_allelectron.py` (1.0e-05 relative against
+  1e-08).
+- A guard or a message that the test asks for and the code does not give:
+  `test_quantum_metric.py` (`refused on a metal`), `test_shg.py` (no `NotImplementedError`),
+  `test_transport.py` and `test_ultracell_sts.py` (no `do not lie between` warning),
+  `test_streamed_phonons.py` (two cases, `walked` is not `None`), `test_elastic_one_trace.py`
+  (three tests, 0 traces counted).
+- A number far from its bound: `test_spin_spirals_augmented.py` (0.119 against 1e-10),
+  `test_scf_solvers.py` (1.88e-05 where more than 0.02 is asked),
+  `test_magnetic_ultracell_slow.py` (`the assembled H is not Hermitian`, 7.608e-07 against
+  1.0e-08).
+
+**What is not known.** Whether any of them fails on the workstation: the slow set was not run
+there, so a difference of the Triton nodes or of the Triton venv is not excluded, above all
+for the first kind. Which commit of master each one starts at. `tests/regression/
+test_realtime_regimes.py` did not finish in 1 h 21 min at `ceedcaf6` and was cancelled, so its
+state is not known either.
+
+**What to do.** One file at a time: run the single failing test here under the cap where it
+fits in 5 GB, and bisect on master where it fails here too. The second kind is the cheapest to
+read, since the missing guard or message is a string to search for.
+
+**How to know it worked:** the 15 files pass at master on the machine where they failed.

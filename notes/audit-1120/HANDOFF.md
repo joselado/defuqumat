@@ -39,35 +39,21 @@ Decided by the user on 2026-11-21, by pick list: the 99 slow files run on Triton
 21740810 at `ceedcaf6`, logs `calculations/audit-1120/slow-21740810_<task>.out`, task n is
 line n+1 of `slow-files.txt`); the two rule commits stay; `notes/audit-1120/` stays.
 
-**The slow array ran and the user stopped it** ("Kill the slow array", then "Cancel it too"
-for the control). 83 of the 99 files passed; `tests/regression/test_realtime_regimes.py` did not
-finish (cancelled after 1 h 21 min); 15 files have failures, 18 tests, listed with what each
-read in P183, "The slow files were then run". A control at master `e22a1c5d` (job 21742448)
-was cancelled after 1 min 28 s: only `test_elastic_one_trace.py` (3 tests) and
-`test_elk_allelectron.py` (1 test) ended, and they fail at master too. **The other 14 tests,
-in 13 files, are not assigned to the branch or to master, and nothing was read against the
-code.** No job of this work is left in the queue.
+**The slow array ran, and the branch causes none of its failures.** 83 of the 99 files passed
+at `ceedcaf6` (job 21740810); `tests/regression/test_realtime_regimes.py` did not finish (the
+user stopped the array at 1 h 21 min); 15 files have failures, 18 tests. The control at master
+`e22a1c5d` (jobs 21742448 and 21742528, the second picked by the user) fails on the same 18
+tests with the same numbers. They are `OPEN.md` Part XXXII item 11, failures of master on the
+Triton nodes, not investigated. The list is in P183, "The slow files were then run". No job of
+this work is left in the queue.
 
-A first look by reading only, with `git log e22a1c5d..HEAD` (hints, not assignments):
+**The user's rule for Triton, 2026-11-21**: "do not run short jobs in triton, at least 30 min
+each, group if needed". The arrays above had one file per task, which the rule forbids from
+now on.
 
-- No branch commit touches the strings `do not lie between`, `refused on a metal` or
-  `do not fill a whole number of bands`, nor `defuqumat/workflows/quantum_metric.py`,
-  `defuqumat/response/photocurrent.py` (the SHG guard) or `defuqumat/magnetic/ultracell_field.py`.
-  So the failures of `test_quantum_metric.py` and `test_shg.py` look like master's.
-- `defuqumat/workflows/transport.py` has five branch commits (`91907be5`, `0e392587`,
-  `9471a7ee`, `7cb77c01`, `db1e4e3f`); the missing warning of `test_transport.py` and
-  `test_ultracell_sts.py` can be theirs.
-- `defuqumat/workflows/landau_ultracell.py` is touched by `c19130e1` (round three #5, a `c=`
-  site read in angstrom); the lost hermiticity of `test_magnetic_ultracell_slow.py` can be its.
-- `defuqumat/response/chunked_phonon.py` is touched by `e36d4de7` (round two #12), which does
-  not change the `walked` field that `test_streamed_phonons.py` reads.
-- The branch edits two of the failing test files: `test_anisotropy.py` (`1915ce05`, #13) and
-  `test_scf_restart.py` (`89190753`, round two #22).
-
-What waits, in this order: the 14 slow failures (a control at master for the 13 files needs
-the user's word, since the user stopped both arrays; reading the code is free); the open
-choices of P183, one pick list at a time; the merge and the push; the removal of the
-leftovers on Triton, which now include the worktree `apps/defuqumat-audit1120-base`.
+What waits, in this order: the open choices of P183, one pick list at a time; the merge and
+the push; the removal of the leftovers on Triton, which now include the worktree
+`apps/defuqumat-audit1120-base`.
 
 # The checkpoint of the night of 2026-11-20 (history)
 
