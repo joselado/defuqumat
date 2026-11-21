@@ -208,3 +208,38 @@ def test_bfgs_is_the_cell_dynamics_that_runs():
     _check_cell_dynamics(None)
     with pytest.raises(ValueError, match="cell_dynamics"):
         _check_cell_dynamics("quenched")
+
+
+def test_cell_dynamics_none_on_a_vc_relax_is_refused():
+    """``'none'`` is damped dynamics of the ions at a fixed cell in ``pw.x``.
+
+    ``input.f90`` maps a ``vc-relax`` with ``cell_dynamics = 'none'`` to
+    ``calc = 'mm'`` (``vcsmd.f90``), which never moves the cell; BFGS on the
+    cell would give another crystal (audit 2026-11-20b #24). The input's own
+    ``'none'`` is refused before any SCF, while the namelist's literal default
+    on a non-``vc`` input still resolves to BFGS when the API asks for a cell
+    relaxation.
+    """
+    from pathlib import Path
+
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system import build_system
+    from defuqumat.workflows.vc_relax import _check_cell_dynamics
+
+    with pytest.raises(NotImplementedError, match="damped dynamics"):
+        _check_cell_dynamics("none")
+
+    from defuqumat.workflows.vc_relax import _resolve_cell_dynamics
+
+    text = (Path(__file__).resolve().parents[1] / "data" / "qe" / "si8-vc-relax.in").read_text()
+    vc = build_system(parse_pw_input(text.replace(
+        "cell_dynamics = 'bfgs'", "cell_dynamics = 'none'")))
+    assert _resolve_cell_dynamics(vc, None) == "none"
+    with pytest.raises(NotImplementedError, match="damped dynamics"):
+        _check_cell_dynamics(_resolve_cell_dynamics(vc, None))
+
+    scf = build_system(parse_pw_input(text.replace(
+        "cell_dynamics = 'bfgs'", "").replace("'vc-relax'", "'scf'")))
+    assert scf.relax.cell_dynamics == "none"
+    assert _resolve_cell_dynamics(scf, None) == "bfgs"
+    assert _resolve_cell_dynamics(scf, "none") == "none"

@@ -229,7 +229,7 @@ because that is what decides whether it is a session or a phase.
   `nspin = 2`, ultrasoft and PAW, all refused by name.
 - **Tip orbitals beyond P179**: the mixed presets (W with s and dz2, CO with its sigma part) from the
   apex PDOS of a tip model, the orbital matrix of a computed tip and Bardeen with an explicit tip,
-  spinor tip channels, complex channels and `match_height` on a reduced k-set, the continuation of
+  spinor tip channels (a label two `j` orbitals share is refused by name since P183), complex channels and `match_height` on a reduced k-set, the continuation of
   the exit plane, a tip orbital in the STS spectrum, QPI, the STM image and the ultracell transport,
   an automatic `match_height`, and the default (raw tail or continued), the user's choice.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
@@ -501,7 +501,28 @@ because that is what decides whether it is a session or a phase.
   restart only).
 - **Writing an Elk state beyond P181** (LDA and Elk's PBE family, unpolarized and collinear, and LDA
   noncollinear, are in): a noncollinear GGA (`dncgga`), a spin-orbit cell measured end to end, datasets
-  other than PAW, libxc functionals (`ggamt_2a/2b`).
+  other than PAW, libxc functionals (`ggamt_2a/2b`). Refused by name since P183: a DFT+U template, and
+  a template run with `tefield`, with `tssxc` or `nosource` on a spin-polarized state, or with
+  `msmgmt` under a GGA; the external magnetic field is not in the written `B_s`, so Elk's first
+  diagonalisation runs without it.
+- **What the audit fixes of 2026-11-20 refused, deferred or held, beyond P183** (`OPEN.md` Part
+  XXXII, `notes/audit-1120/`): a PAW third derivative on a symmetry-reduced k-set (the full-zone
+  tangent of `becsum` in `D` and in `paw_response`; the value split alone is held and is worse); the
+  structure factors of a spin spiral (a second table on the satellites `H -/+ q`); the forces, the
+  stress and `dE/dq` under a `TENSOR_MOMENTS` constraint (`-dE_pen/dtau`, 4.9e-3 Ry/bohr on BN); the
+  external forces of `ATOMIC_FORCES` (`extfor` on `System` and `-sum F . tau` in the energy),
+  `CONSTRAINTS`, `trism` and `nextffield`; a Z2 under time reversal times a translation, and the
+  Kramers-pair check of the Wannier centres; a default range for the constant-current STM scan;
+  `starting_ns_eigenvalue` under a residual solver; a meta-GGA with `rotate_moments` (the turn of the
+  vector part of `tau`), and the `rho_ddot` fit vectors turned with the residuals (held, so the
+  history is dropped at every turn); the Thomas-Fermi `tau` seed at `nspin_mag = 4`; the group
+  average of `ddd_paw` and the `'kubler'` GGA on the cut PAW channels (both held); the exact-trace
+  KPM spin DOS on a wedge; the turning wedge on PAW, for the first-order term and for the
+  relaxation of the orientation (items 6 to 10 of that part are of 2026-11-21: also a run
+  fingerprint for a checkpoint, the restart of the multi-run workflows, the `'fit'` estimate
+  without the device store and the ultracell's zero-weight states, both held, and
+  `with_positions` under a move that changes the group); P62e's tensor-moment numbers, which belong to the contraction before
+  `1b052175` and are not remeasured; and round three's groups F and G, in progress.
 - **Transferring more than a charge density from Elk** (P72). The reader and the seed are
   in for an unpolarized state of an element with no core, validated pointwise against
   Elk's own `RHO3D.OUT` on hydrogen and on SiC, and for a collinear spin-polarized state
@@ -703,6 +724,12 @@ unconverged roots to the front; under `jit` the same compaction is a stable `arg
 Both traps showed the identical symptom — silicon's highest band a few meV off, nothing
 else wrong. (3) `c_bands.f90` re-enters `cegterg` up to five times, so QE's real iteration
 budget is `maxter × ntry = 100`, not the 20 the solver itself declares.
+*Corrected 2026-11-20 (audit 2026-11-20b #9).* `c_bands.f90` re-enters `cegterg` while
+`ntry <= 5`, counted before the test (`c_bands.f90:583-587`, `:914-916`), so QE's iteration
+budget outside an SCF is `maxter x 6 = 120`, not 100 and not the 20 the solver itself
+declares; inside an SCF it re-enters only while more than five bands are unconverged. This
+code's `MAX_ITERATIONS` is still 100, one continuous loop for every caller; `pw.x`'s
+allowance of five unsettled bands inside an SCF is written and held as a patch (P183).
 
 **P5 — Full SCF. ✅ DONE.** `scf/` — `v_of_rho` (Hartree + LDA), `sum_band`,
 occupations for every QE smearing plus `from_input`, Anderson mixing, Ewald, and the
@@ -882,6 +909,11 @@ function does, and the tetrahedra, which are built from `Calculation` as well as
 `run_dos`. `rotations = None` is `nosym`, which `KPoints.automatic` reads as "the complete
 grid", so the tetrahedra take the identity with time reversal **off**, which is the same
 statement in the form `grid_equivalence` understands.
+*Added 2026-11-20 (audit 2026-11-20c #1, `1f587ffb`; the numbers are in P183).* The
+tetrahedra check the k-point list against the fold of its grid (`folded_grid`) and refuse
+another list with `tetra.f90`'s "cannot remap grid on k-point list". The whole grid on a run
+with symmetry is refused, as `pw.x` refuses it.
+
 **P8 x P9 — what integrating them needed.** Both schemes stay per channel; the workflow
 loops over them and the `.dos` file grows a `dosup`/`dosdw` pair with one summed
 `Int dos`, as `dos.f90` writes it. Two things were not mechanical:
@@ -2205,6 +2237,11 @@ DFT run — which needs a magnetization *and* spin-orbit coupling, the one spin 
 refuses — the mirror and spin Chern numbers of a symmetry sector, and the quantum
 geometric tensor's metric half.
 
+*Added 2026-11-20 (audit 2026-11-20c #4, `e47da50a`; the numbers are in P183).* The Z2 is
+refused when the run breaks time reversal (`domag`, a field or a constrained moment) and on a
+plane other than `k = 0` or `1/2`. An antiferromagnetic Z2 (time reversal times a
+translation) is refused too, since no route reads such an operation.
+
 **P17 — Noncollinear magnetism, completed. ✅ DONE.** The ground P18 and P19 stand on, and
 it turned out to be hollow: `nspin_mag = 4` was built in P14 and never *run* against a
 reference, and the first magnetic noncollinear calculation attempted here came out
@@ -2213,7 +2250,10 @@ filter and `t_rev`; `scf/driver.py` the axial-vector symmetrisation of the magne
 `paw/symmetry.py` the same rotation on `becsum`; `paw/onecenter.py` the local spin frame on
 the radial sphere; `scf/potential.py` `gradcorr`'s noncollinear branch; `scf/locals.py` is
 new (`make_pointlists`, `get_locals`); and `system/kpoints.py` gained `expand_to_subgroup`,
-which is `irreducible_BZ` and runs for *every* input k-list.
+which is `irreducible_BZ` and runs for *every* input k-list except a `calculation = 'bands'`
+one, which `pw.x` takes as written (`setup.f90:621`; corrected 2026-11-20, audit 2026-11-20b
+#7: before `ae5b7820` a `'bands'` list with `K_POINTS tpiba` or `crystal` was completed too,
+16 points for the 6 of `pw_metaGGA/metaGGA-2.in`).
 
 *Check met:* bcc iron, ultrasoft, LDA, moment along `x` — QE's `pw_noncolin/noncolin.in` —
 to **2.8e-9 Ry**, with the moment `(3.1763, 0, 0)` against the `3.18` QE prints and the
@@ -11279,6 +11319,10 @@ of the four entry points already enforce, moved to where the rebuild happens so 
 call site cannot miss it. `run_force_theorem`'s own check stays, being the more specific
 message a user of that path sees, and the one inside the helper is the backstop.
 
+*Added 2026-11-20 (audit 2026-11-20c #26, `ba31b484`; the numbers are in P183).* The
+projected force-theorem decomposition needs the whole k-grid at every direction, the
+system's own axis included: a wedge completes the total and not the labels.
+
 #### P58b — `soc_scale`: switching the coupling off without changing the dataset.
 
 Elk's `socscf` (manual 5.118, `gensocfr.f90`), which exists there for exactly
@@ -11694,6 +11738,16 @@ reconstructed all-electron valence density, which is worth a factor of two the
 right way on an allowed reflection and nothing at all on one whose asphericity
 is `l = 3` (the table above); and the multiplicity of a reduced set applies to
 the charge, the magnetic star members being related by `det(R) R`.
+
+*Added 2026-11-20 (audit 2026-11-20c #8, `e65c87a2`, P183).* The structure factors refuse a
+spin spiral. Its transverse magnetization is in the frame that turns with `q`, so `F_x(000)`
+of the hydrogen chain at `q = b3/4` read 0.5397 Bohr magnetons a cell, a ferromagnet, where
+the laboratory value is zero and the moment sits on the satellites `(0 0 -/+1/4)`, 0.2699
+each. The satellites are `(F_x' -/+ i F_y')/2` of the turning-frame columns, checked on the
+four-cell supercell to 1e-6, and are not reported yet. The refusal also stops the charge
+columns of a spiral, which were right; the message names the route that works for a
+commensurate `q` (`unfold_spiral_density`, then `structure_factors_of_field` on the
+supercell).
 
 ### P62 — Elk's other DFT+U flavours. ✅ DONE, all five.
 
@@ -12298,6 +12352,21 @@ counts at every k-point and both thresholds**, and two cells agreeing looks like
 evidence -- except that the Hubbard share of that cell's diagonal is **0.0036 Ry, 0.010 per
 cent**, against 0.1297 Ry and 0.550 per cent on nickel, so BN could not have shown a
 difference. Ask how large the perturbation is before reading a null.
+
+*Added 2026-11-20 (audit 2026-11-20 #8 and audit 2026-11-20c #21, P183).* **The measured
+numbers of this section are not remeasured after a fix that moves them.** `ns` is `rho^T`, and
+`decompose` and the two contractions of `ftm.py` took `sum conj(Gamma) ns`, which is
+`Tr(Gamma^T rho)` where Elk's `dmtotm3` is `Tr(Gamma rho)`: on the four `j = 3/2` states of a
+`p` shell `Tr(L.S rho)` is 2 and the old code gave -0.6667. Since `1b052175`
+`moment_matrices` returns `conj(Gamma)`. The free `L . S` of -0.0006, the moments -0.109,
+-0.263, -0.355, -0.388 and the energies +2.6, +15.3, +27.4, +32.6 mRy above belong to the old
+functional, which for `L.S` is `<-LxSx + LySy - LzSz>`, so the target -0.40 was a target on
+another quantity. The fix was committed by the user's decision of 2026-11-20 ("apply, no test
+needed"), and the slow
+`tests/regression/test_ldau_flavours.py::test_a_fixed_tensor_moment_tracks_its_target` keeps
+the old expected values (-0.109, -0.355) and is expected to fail until it is run and updated.
+The forces, the stress and `dE/dq` are refused under a `TENSOR_MOMENTS` constraint since
+`bc035fd8` (#21): the SCF makes `E + E_pen` stationary and these differentiate `E` alone.
 
 ### P63 — Magnons: the transverse spin susceptibility. ✅ DONE, collinear and norm-conserving.
 
@@ -12918,6 +12987,14 @@ phase), a tip with structure beyond Tersoff-Hamann's s-wave (Chen's derivative r
 and an image of a **charged** or field-biased surface, where the tip's own potential
 enters.
 
+
+*Added 2026-11-20 (audit 2026-11-20c #9 and #10, `060b13f3` and `38b313af`; the numbers are
+in P183).* A constant-current scan needs `heights`, and a scan of one period or more is
+refused: the old default was one period, whose last plane is the first one again. The
+`height` shortcut scans along `+a_axis` for every axis and in a left-handed cell; before,
+`axis=1` scanned along `-a2`, into the slab. Which range the 0.39 bohr corrugation of this
+record was measured with is not known (it has no committed script), so it is not claimed to
+have moved or not.
 
 ### P66 — Vertical tunnelling transport through a two-dimensional material. ✅ DONE.
 
@@ -14114,6 +14191,11 @@ exchange-correlation integral, and the one-grid route is bit-identical
 (`test_two_grids_keep_the_imaginary_part`). Found by the review of the k-chunked phonon
 at `q`'s plan, which read the interpolation the chunked route would finish with.
 
+
+*Added 2026-11-20 (audit 2026-11-20c #27, `c09f3c72`, P183).* The phonon at `q` and the
+electron-phonon coupling refuse an explicit `K_POINTS` list that is not a whole grid
+(`covers_a_whole_grid`). Before, the time-reversal half of a shifted grid written out at
+equal weights passed the guard and was summed as the whole zone.
 
 ### P72 — Reading an Elk ground state, and measuring that it buys nothing. ✅ DONE, hydrogen and unpolarized.
 
@@ -15370,6 +15452,13 @@ polarized the atom is or the first iteration contradicts itself."
 `system.starting_magnetization` directly, `get_locals` returns Bohr magnetons, and
 `constrained_magnetization = 'atomic'` therefore aims at exactly the number the user wrote.
 That is right and changing it would break it.
+*Added 2026-11-20 (audit 2026-11-20b #32).* It departs from `pw.x` at a value of 1 or more:
+`input.f90:1482-1483` divides by `zv` before the `SELECT` that builds `mcons` (`:1540-1549`),
+so `pw.x` aims at the divided value (iron, `zv = 16`, value 2: 0.125 mu_B there, 2 mu_B
+here). Since `87533e55` the warning names the target as the exception, and the docstring of
+`constraint_targets` says where it departs. The line numbers cited above (`1448-1449`,
+`1476-1480`) are of an older QE; in 7.5 the division is at 1482-1483 and the clamp at
+1510-1514.
 
 **The card's unit was the user's decision and they took Bohr magnetons**, which is what it
 was documented as in four places (`io/pwin.py:51`, `builder.py:94-95`, `builder.py:1593`,
@@ -23210,6 +23299,20 @@ rotation), and `spinor_rotation(w)` turns a spinor's magnetization by `rotation_
 to 1e-12. The static GGA axis is left alone, which the Hartree and exchange-correlation
 invariance of step 1 (1e-12 at 30 degrees off the axis) justifies for a collinear texture.
 
+*Corrected 2026-11-20 (audit 2026-11-20b #3 and its extra item, P183).* The equivariance
+above is the flat fit's. Since P146 (`043d293e`, 2026-10-13) every Anderson run carries
+`rho_ddot` fit vectors by default, and `AndersonMixer.rotate_history` drops a history that
+has them, so under the default fit every Route C turn resets the history. On the oblique
+cobalt (`co-tetragonal-relaxed-mae.in` started 45 degrees off `c`, `nosym`, 18 points,
+`conv_thr=1e-12`, `torque_conv_thr=1e-9`, one sample each on cores 0-3): 59 iterations and
+47 turns with 0 entries after a turn under the `rho_ddot` fit, 42 iterations and 32 turns
+with 8 entries under the flat fit. I78, I112 and I113 were measured after P146 and ran with
+the reset. The fix that turns the fit vectors with the residuals is written and **held** as
+`notes/audit-1120/round2-3-rotate-fit-vectors.patch`: it gives 48 iterations on that
+arithmetic order and 60 against 53 on one efficiency core, so no saving is shown, and it
+would move I78, I112 and I113. `rotate_moments` also refuses any meta-GGA since `f92c02e3`:
+at `nspin_mag = 4` `tau` has a vector part on the Pauli basis that the turn does not rotate.
+
 | run, oblique tetragonal cobalt with the coupling | iterations | angle to `c` at the end | total energy |
 |---|---|---|---|
 | plain SCF, `conv_thr = 1e-10` | 100, not converged | 36 to 54 degrees, wandering | |
@@ -25955,6 +26058,15 @@ differentiated consumer passes a vector (the Newton residual and every response 
 so no derivative was wrong. `solvers/davidson.py:tangent_width` now floors the vector at
 `EMPTY_ETHR_FLOOR` too, with a unit test in `test_subspace_eigh_tangent.py`; the primal is
 unchanged, since `eta` enters only the `custom_jvp`.
+*Corrected 2026-11-20 (audit 2026-11-20b #20).* The two sentences above, "No differentiated
+consumer passes a vector (the Newton residual and every response pass a scalar), so no
+derivative was wrong", are wrong. Every production solve passes a vector:
+`davidson_eigensolver_all` broadcasts `ethr` to `(nk, nbnd)` and each k-point gets its row, so
+the Newton residual's scalar arrives as a row of the bare `ethr`. Before this floor the Newton
+autodiff tangent was regularised at that bare `ethr`, 1e-11 at `conv_thr = 1e-8`, and after
+it at 1e-5, so the floor did move that derivative. **Open question:** whether the autodiff
+numbers above were taken through `ScfResidual.jvp`, and so at 1e-11, was not checked.
+`test_a_scalar_ethr_reaches_the_tangent_as_a_row` pins the fact (`2748adeb`).
 
 **Item 6, measured after the change** (`us_becsum.py` on the P148 worktree, the same cells; the "other
 arm" column is the before-arm run read back from its saved density and eigenvalues):
@@ -27157,6 +27269,11 @@ symmetry (`sitesym`, removed from the port); `gamma_only`; SCDM (`auto_projectio
 projections and selective localization; `wannier_plot` and `r_mn(R)`; the band-12 cut gap of V1
 (above). Differentiability is not attempted: the engine is NumPy on the host, so a derivative of
 a Wannier quantity is not available.
+
+*Added 2026-11-20 (audit 2026-11-20c #5, `c19130e1`; the numbers are in P183).* A `c=`
+projection site is in angstrom, as in a `.win` file. Before, `get_wannier` and the Landau
+`trials=` read it in bohr. This changes what an existing call with a nonzero `c=` site
+means; no committed test, notebook, guide page or calculation uses `c=`.
 
 ### P163 -- Wannier functions without trial orbitals: `projections="auto"`, projectability disentanglement on the pseudo-atomic orbitals. ✅ DONE 2026-11-05 (fast checks only; no slow test written; branch `wannier-pdwf`, not merged, not pushed)
 
@@ -30774,6 +30891,28 @@ transport; the lateral change of the potential above the matching plane, which t
 `match_height`, with the diagnostics in `notes["tip"]`: the user's decision of 2026-11-15, chosen
 over an error for such a tip and over a continuation from a plane the code would choose itself.
 
+**Corrected 2026-11-20 (audit 2026-11-20 #49, #7, #4, #5, #12, #43; the per-item record is the
+fix log of `notes/AUDIT-2026-11-20.md`, the phase is P183).** *The form.* What this record calls
+"WKB through the planar average" is the WKB exponent without the WKB amplitude
+`sqrt(kappa_nG(0)/kappa_nG(d))`. Both forms were measured on this record's probe (graphene at 40 Ry,
+the whole 6x6x1 grid, 20 bands, the plane 3 bohr above the sheet, `broadening=0.02`): the code as
+it is reads 1.0105 and 0.9837 of the raw tail at 3.5 and 4 bohr (recorded above as 1.010 and 0.984)
+and 1.9520 for the `pxy` hollow over an atom at 4 bohr; with the amplitude these are 0.9587, 0.9139
+and 1.9504, and at 5 bohr 0.9030 against 1.0125 without it. So the exponent alone is closer to the
+raw tail and is kept, the numbers above belong to it, and `notes["continuation"]` still reads
+`"wkb through the planar average"`. On the hydrogen sheet the pair does not decide (with the
+amplitude 0.951, 0.873 and 0.937 for s, `pz` and `pxy`, the exponent alone 1.121, 1.022 and 1.087,
+and the raw tail there is not good itself). *V3.* The **0.0** of the raw pz tip was measured before
+`91907be5` (#7), which builds the tip Gram as `|c|^2 folded_gram(f)` where it was
+`folded_gram(c f)`; the fix agent expects about 1e-16 there and did not run the slow test
+(`rel=1e-11`), so 0.0 stands until `test_the_map_over_the_tip_plane_is_the_momentum_sum` is run.
+*The channel maps on a wedge.* With `tip_channels=True` they were group averages (#4, #5): on
+graphene's 7-point wedge against the whole 6x6x1 grid they were off by 0.383 (`pxy`), 0.232 (`p`),
+0.432 (`CO`) and 0.158 (`Pb`) of the peak and agree to 3.4e-9, 3.2e-9, 3.9e-9 and 3.2e-9 since
+`7cb77c01`; the totals, 3.0e-9 to 4.2e-9, and V9 did not move. *Two refusals added:* a matching
+plane inside an augmentation sphere (`db1e4e3f`), and a label two orbitals share in a fully
+relativistic dataset, the two `6P` of `Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF` (`1736b955`).
+
 **Slow files for the user** (not run here): `tests/regression/test_tip_orbitals_slow.py` (new),
 `tests/regression/test_transport.py`, `test_qpi.py`, `test_ultracell_stm.py`, `test_ultracell_sts.py`,
 `test_ultracell_augmented.py`, `test_gamma_consumers.py`, and the slow tests of
@@ -30938,6 +31077,8 @@ Every run ends at Elk's own energy (O2: -149.31451292 against -149.31451284 at `
 
 **What is outstanding.** A noncollinear state under a GGA (`dncgga`); spin-orbit coupling (refused; no PAW spin-orbit cell with Elk was run); the guide and notebook snippets ran on this workstation, not on D22; the magnetization a fully relativistic dataset's small component carries on its own (left out); a noncollinear texture without spin-orbit coupling whose spin-space group needs spin rotations other than the identity, a reversal and `det(R) R`. Reading an Elk state with a core, or a noncollinear one: P72's refusals stand, **the user's decision of 2026-11-18** ("leave the reader"), asked as a pick list against reading `elk.in` for the spiral and transcribing `gencore` for the core. Other pseudopotentials than PAW (an atomic all-electron correction would be needed). Elk's `ggamt_2a/2b` route for libxc functionals.
 
+**Corrected 2026-11-20 (audit 2026-11-20 #1, #2, #6, #19, #21, #38; the per-item record is the fix log of `notes/AUDIT-2026-11-20.md`, the phase is P183).** Five statements above are stale against the code. *The spin rotation.* "The first of the identity, a reversal and `det(R) R`" is now the first `det(S) S` over the lattice symmetries in Elk's `symlat` order that maps the moments (only `det(R) R` under spin-orbit coupling), as `findsym` chooses it (`cb569e40`). Two H on a monoclinic lattice with antiparallel `bfcmt`: Elk 11.0.2 prints 1 crystal symmetry and 2 for the ferromagnet, and the old rule gave 2 for both. On `h_sc_spin` and both O2 templates every operation keeps the identity as before, and the potentials move by at most 2.9e-16 relative. *The group.* `elk_space_group` keeps every translation of a rotation, as `findsymcrys` does, and follows the template's `nosym` and `symtype`: Si in the 8-atom cubic cell has 192 operations, Si2 with `symtype 2` 24 and with `nosym` 1, where the old code gave 48 for all three; a group whose order is not the `nsymcrys` of `INFO.OUT` is refused. The counts of the six committed templates stay 48, 48, 24, 48, 16 and 16. These Elk counts are from the elkpy build, not the official binary of the rows above, and only the printed number of crystal symmetries was read. *External fields.* "External fields are not refused" holds for magnetic fields only: a template run with `tefield` is refused, and so are `tssxc` (`sxcscf /= 1`) and `nosource` on a spin-polarized template and `msmgmt` (also set by `stable` and `metagga`) under a GGA; a template without `elk.in` is warned about under a GGA or on a spin-polarized state. And "in `genbs` every loop" misses the first one: `gndstate.f90` goes from `readstate` to `genevfsv` with no `genbs` between, so Elk's first diagonalisation from a written state runs without the external field and the later ones have it. *DFT+U.* A template with `dftu != 0` is now refused by name (`0b2f1af0`); before, its `vmatmt` was written beside our density and Elk diagonalised with it (`readstate.f90:251`), so "Elk's DFT+U `vmatmt` ... stay refused" is true only since then. *The core join.* It spans a factor e in `r`, not a decade (`_dirac_core`, unchanged; the rows above were measured with it). On Elk's Si mesh the result is the template alone up to 0.0357 bohr at `r_join = 0.1` (0.1/e = 0.0368) and up to 3.63e-5 bohr at `r_join = 1e-4`, and ours from 0.1106 and 1.014e-4. So "Elk's shape below 1e-4 bohr" in the tables and in the text is Elk's shape up to 1e-4 bohr, alone below 3.7e-5; "Elk's own density below 0.01 bohr, joined by 0.1" is the template alone below 0.037 bohr, joined by 0.1; and the row "the same, joined over a decade (`C^2`)" is a join over a factor e. No number of the tables changes.
+
 ### P182 -- The local mBJ: the Tran-Blaha `c` as a field, for cells with vacuum. IN PROGRESS 2026-11-18 (branch `lmbj` from `density-io`; `defuqumat/xc/mgga.py`, `xc/functional.py`, `basis/gradients.py:gaussian_average`, `scf/potential.py`; `tests/unit/test_lmbj.py`, fast)
 
 **Why.** The user asked which TB09 is right (this code's: Tran and Blaha's definition; `pw.x`'s `tb09` is not it, P30's 2026-11-18 note) and recalled a point about TB09 with a large vacuum. That point is Rauch, Marques and Botti, J. Chem. Theory Comput. 16, 2654 (2020), arXiv:1911.00368: with vacuum, `|grad n|/n` tends to twice the decay constant, not to zero, so one cell-averaged `c` describes neither the material nor the vacuum, and an interface's two sides want different values. Their local mBJ: `c(r) = alpha + beta gbar(r)^e`, `gbar` the Gaussian average (width 3.78 bohr) of `g = g_vac (1 - erf(n/n_th)) + (|grad n|/n) erf(n/n_th)`, `n_th` from `rs = 5` bohr, so `c -> 1` in vacuum. The user chose to implement it (2026-11-18, pick list), and then **both parameter sets with TB09's as the default** (pick list): `'tb09'` (`alpha = -0.012`, `beta = 1.023`, `e = 1/2`), whose bulk limit is this code's TB09, and the paper's `'koller'` (`0.488`, `0.5`, `e = 1`), which on norm-conserving densities gives a lower `c` than the all-electron fit assumes. `input_dft = 'lmbj'` with `lmbj_sigma`, `lmbj_rs` (bohr) and `lmbj_parameters` in `&system`; `SCFResult.meta_c_field` is `c(r)` and `meta_c` its cell mean (the one-number readers keep a number).
@@ -30963,8 +31104,678 @@ Every run ends at Elk's own energy (O2: -149.31451292 against -149.31451284 at `
 
 **The user chose to hold the potential at the tail's value (pick list), and it is the code's now**: `mgga.hold_vacuum_potential`, called by `scf/potential.py:meta_exchange` under `lmbj`, blends the channel potential below `n` = 1e-5 (`LMBJ_RHO_HOLD`) into its mean over `1e-5 < n < 1e-4` through `[1 + erf(ln(n/1e-5)/(ln 10 / 2))]/2`; the 1e-9 gate stays beneath it, where it no longer matters, and a bulk crystal has no point below 1e-5 (silicon's minimum is 6e-4), so its numbers and the bulk-limit identity do not move. Graphane with the committed code, `conv_thr = 1e-11`, gaps off the band route: **6.131, 6.026, 6.015 eV** at 20, 30, 40 bohr, 13 to 14 iterations; the vacuum potential flat to 0.0008, 0.0028, 0.0033 Ry along `z` and 0.281 Ry above PBE's at 40 bohr; `c` 1.270 in the sheet at every size, 1.079, 1.004, 1.000 in the middle of the vacuum; 20 to 30 bohr, the occupied bands rigid to 2.2 meV and the vacuum state at `Gamma` moving 0.104 eV (PBE 0.21). The rows of the table above with the 1e-9 gate alone are superseded.
 
+**Corrected 2026-11-20 (audit 2026-11-20 #9, #10, #25, #26, #46, #47; the per-item record is the fix log of `notes/AUDIT-2026-11-20.md`, the phase is P183).** The hold as the code has it now. Each channel's potential is blended on its own `2 n_sigma`, the density that channel's exchange is evaluated at (#47, `29acaf16`; at `nspin = 1` that is the total bit for bit). The blend acts below about 1e-4, centred on 1e-5, not only below 1e-5: `w` is 0.5 at 1e-5, 0.73 at 2e-5 and 0.998 at 1e-4. The tail value is **one mean per face** when the shell `1e-5 < n < 1e-4` is the two faces of one slab, each point taking the mean of the nearer face, and the cell mean for every other shell, with a warning after the SCF where separate pieces share a mean (#9, #10, `b59f3277`, the user's second choice from a pick list, after a local Gaussian tail moved graphane by about 3 meV and was dropped). Graphane before and after, both arms on cores 4 to 11: 6.130934020587, 6.025637695114 and 6.014764982032 eV against 6.130934078535, 6.025637695115 and 6.014764982028 eV at 20, 30 and 40 bohr, so 5.8e-8, 3.3e-13 and -3.9e-12 eV, the first being exactly what the old code gives between the two kinds of core; the two face means differ by 4.0e-13, 1.3e-13 and 2.6e-13 Ry. So 6.131, 6.026 and 6.015 eV above stand. On graphane with the upper H moved 0.3 A further from its C the two vacua are held at 0.222755 and 0.306521 Ry, where the cell mean held both at 0.2635 and 0.2629 Ry, and the gap moves from 5.054616 to 5.053481 eV. "A bulk crystal has no point below 1e-5" is too strong: a bulk crystal whose lowest density is above 1e-4 is untouched (silicon, 6e-4), and fcc Ar at 9.94 bohr is not: its TB09 density has its minimum at 8.38e-5, 43 of the 27000 grid points are in the shell, and the bulk-limit identity holds to 3.6e-6 Ry in the eigenvalues there, against 2.4e-14 on silicon (#46, left as it is; the three options are in the fix log). A polarized `nspin = 2` run is admitted and not checked by any number (#26).
+
 **Tests.** `tests/unit/test_lmbj.py` (fast, 14 tests: the analytic image sum, the vacuum limits, the bulk-limit identity on a 15 Ry cell, the unpolarized `nspin = 2` run against `nspin = 1` (`c(r)` to 1e-10, eigenvalues to 1e-9), the band route at the SCF's k-points (the six converged bands to 1.6e-6 Ry, as under TB09; the two highest are the SCF's loose ones, 0.022 Ry under both), the gate per functional, every refusal); `tests/regression/test_lmbj_vacuum.py` (**slow, not run, for the user**: graphane's `c` against the vacuum's size, `c -> 1` in vacuum, the rigid occupied bands, the vacuum state within 0.2 eV); `tests/unit/test_checkpoint.py` classifies `meta_c_field` as dropped (a function of the density). The fast tests of every file that mentions the meta-GGA (34 files) and of every file reaching the new guards (22 files, 330 passed) were run on this workstation.
 
 **Refused, each fired by a fast test**: a PAW dataset (the one-centre terms take one `c`, and `meta_c` would put the mean on every sphere), a spinor run (with it a spiral and `nosource`, which need `noncolin`: the local-frame and parity branches have no number with `c` a field), `mbj_c` with `lmbj`, the `lmbj_*` keywords on another functional, an unknown parameter set, a non-positive length; and every regime lifted for TB09 with one `c` (`xc/functional.py:refuse_local_meta`): a residual SCF solver, the Sternheimer Jacobian of the SCF map, the ultracell, the spin torque, real time with `potential = 'hxc'`, a topological invariant, `band_precision = 'single'`. Ultrasoft stays refused for every meta-GGA. `write_qe_save` warns (`pw.x` has no local mBJ).
 
 **Outstanding.** PAW (the value of `c(r)` at each atom); spinors; each refused regime, to be measured with `c` a field; the guide section with an executed snippet and the notebook (both to run on D22, the user's rule for guide computations); the slow test `test_lmbj_vacuum.py`, for the user. Done besides the code: the README row and bullet, the Limits sentence in `own-crystal.md`, the scope entry, `PERFORMANCE.md`; the timing (no reference code here implements the local mBJ: QE has no TB09 proper, Elk computes one all-electron `c` per iteration, `xc_c_tb09.f90` from `potks.f90:37`, and hands libxc the Laplacian; VASP has the local form). Elk is therefore an all-electron reference for the *global* TB09 potential on a given density, which P30 never used. The old registry comment that called BJ06 what `pw.x` runs is corrected (P30's note).
+
+### P183 -- The three reading audits of 2026-11-20, fixed on the branch `audit-fixes-1120`. ✅ DONE 2026-11-21 (branch `audit-fixes-1120` from `e22a1c5d`, master's head and the commit of P182; 138 commits to `6b7bb998`, where the work of 2026-11-20 stopped, and 147 to `277ce4d5`, the last fix, the first being `b8e02532`; rounds one and two addressed in full, round three #1 to #29 by the user's choice; each fix with a fast test that fails on the old code where one could be written, the test run in a worktree of the old code and on the branch, one pytest at a time on this workstation, under a 12G cgroup cap on 2026-11-20 and under 5G on 2026-11-21 (groups F and G); **the fast gate ran on Triton**, at `6b7bb998` and at `ceedcaf6`, see the gate line at the end; **the 99 slow files the changes reach were run on Triton at the user's pick and the run was stopped by the user: 83 files passed, one did not finish, and 15 files have failures, 18 tests, and all 18 fail at master `e22a1c5d` too with the same numbers, so the branch causes none of them, see "The slow files were then run" near the end and `OPEN.md` Part XXXII item 11**; merged into master with `--no-ff` and pushed on 2026-11-21, the user's pick)
+
+Three read-only audits on one day, each with a fix log at its end: `notes/AUDIT-2026-11-20.md`
+(round one: ten readers on the code written since the audit of 2026-11-15, read at `e22a1c5d`,
+49 findings), `notes/AUDIT-2026-11-20b.md` (round two: ten more readers on the core the earlier
+audits left open, read at `696cef9f`, 34 findings, one slice of them a review of round one's
+fixes) and `notes/AUDIT-2026-11-20c.md` (round three: twenty readers on what neither covered,
+87 findings, of which the user chose to fix #1 to #29). No finding was tried by a skeptic, so a
+finding could be wrong. Each fix agent therefore put its finding in one of four bins first: a
+code fix, with its test seen to fail on the old code; a refusal by name, where the full fix
+would be new physics; text only, where the code is right and the measured numbers belong to
+it; or deferred, where the fix needs the user's choice or a measurement longer than the fast
+tests. A fix that moves a number this file records was stopped before its commit and is a held
+patch. **The per-item record, with every number, is the three fix logs**; this entry says what
+kind of defects they were and the numbers that moved. A finding is named by its round and its
+number in that round's note. The corrections the fixes make to earlier phases are dated notes
+in P4, P17's line on `expand_to_subgroup`, P77c, P122, P148, P179, P181, P182, P62e and P61,
+with one pointer each in P8, P16, P58, P65, P71 and P162.
+
+**Silent wrong numbers, measured before and after: round one.** The tensor moments contracted
+`Gamma` with `ns = rho^T`: on the four `j = 3/2` states of a `p` shell `Tr(L.S rho)` read
+-0.6667 where it is 2 (#8, `1b052175`, committed by the user's decision without its slow test,
+so P62e's numbers belong to the old contraction and are not remeasured). A spin-resolved KPM
+trace took a wedge written as an explicit `K_POINTS` list for the whole zone: on zincblende SeI
+(24 operations, no inversion) with the exact trace the spin DOS read 3.5e-2 on the 2-point
+wedge and 2.4e-2 on the time-reversal half, against 8.6e-15 on the whole grid and a DOS peak of
+19.43 states/Ry; both lists are now refused (#11, `3f3e6a95`, `covers_a_whole_grid`). The
+per-channel tip maps on a wedge were group averages: on graphene's 7-point wedge against the
+whole 6x6x1 grid the `pxy`, `p`, `CO` and `Pb` channels were off by 0.383, 0.232, 0.432 and
+0.158 of the peak and agree to 3.4e-9, 3.2e-9, 3.9e-9 and 3.2e-9 (#4, #5, `7cb77c01`; the
+totals and V9 did not move). A nonmagnetic spinor `ns` on a k-set halved by time reversal is
+averaged with its Kramers partner (#14, `b61117d8`): on wurtzite Zn 3d an odd `ns` that the
+group allows was kept and is removed to 1e-13, and the converged fcc and hcp Pt `ns` are the
+same to 5.2e-15 and 2.0e-15. **This is a departure from `pw.x`**, whose `new_ns_nc` declares
+`time_reversal` and `sigmay2` and uses neither; the end-to-end check, a wedge `ns` against a
+whole-grid one on a nonmagnetic spinor cell without inversion, is a regression-sized run and
+is not done. The Elk writer's group was 48 operations where Elk prints 192 (Si in the 8-atom
+cubic cell), 24 (Si2, `symtype 2`) and 1 (Si2, `nosym`), and with `nosym` the written `vxcmt`
+was 7.17e-3 Ha from the potential without the average, 1.6e-13 now (#2, `cb569e40`); the spin
+rotation gave 2 operations where Elk prints 1 for a monoclinic antiferromagnet (#38); two
+equal moments that round apart, 0.124 and 0.123, kept 8 operations of 16 (#39); a cell with an
+internal translation could swap the magnetic sublattices, written -,+ where the template has
++,- on two O in a 6 bohr cube (#37, `8c89037e`); `npsd` was rounded with `np.rint` where Elk's
+`nint` takes 2.5 to 3 (#18, `7a3fe58e`); a state for an Elk older than 10.7 was written with
+records its reader does not take (#16, `32057e0f`); and `O_up` was read as another element
+(#17, `cf953277`). On the six committed templates the potentials move by at most 2.9e-16
+relative, so no number of P181 moves. The local mBJ hold took its shell and its weight on the
+total density, so a minority channel at 1e-4 of the majority was held 0.050 Ry off (#47,
+`29acaf16`), and it held both faces of a slab at one value (#9, #10, `b59f3277`, one mean per
+face, the user's choice; P182 has the numbers). `paw.txt` and `occup.txt` with list-directed
+repeat counts `r*c` raised a `ValueError` (#48, `531a7f50`; that Intel Fortran writes this form
+was not checked). The spinor symmetrizer returned float64 for a float32 density (#40,
+`b8e02532`). The `nspin = 2` `becsum` total of the residual split is `sqrt(2)` times the old
+one, a diagnostic that feeds no threshold (#15, `0b268721`). A state written at `soc_scale`
+other than 1 now warns (#41, `18254408`).
+
+**Silent wrong numbers: round two.** `dE/dq` of a DFT+U spiral had no Hubbard energy: on the
+hydrogen chain of P21 at `q = 0.3 b3` with `U = 4` eV the frozen energy missed
+`energy_terms['hubbard']` = 3.8956e-3 Ry, and `dE/dq_z` goes from -1.43363e-2 to -4.60856e-3
+Ry, 3.93e-6 from a central difference of reconverged SCFs at `q +- 0.01` where the old gradient
+was off by 9.7e-3 (#1, `5ae7ff5f`); `at_spiral_q(rebuild_basis=True)` kept the old `wfcU` (#2).
+The Gamma phonon of a metal on a wedge used the raw Fermi-level shift of each mode: on hcp
+aluminium (`tests/data/qe/al2-hcp-metal.in`, new) the E mode read 150.9627 cm^-1 on the wedge
+against 146.0344 without symmetry, the matrices 1.49e-3 Ry/bohr^2 apart of 0.0429, and it reads
+146.0344 now on both routes, 3.6e-7 Ry/bohr^2 from the whole grid; `al4-metal.in`, the
+recorded metal phonon on a wedge, is the same to 8.7e-15 of 0.0886 (#12, `e36d4de7`). The node
+limit of `B_xc/m` was taken at the valence density under a core correction: the two branches
+of the kernel missed each other by 0.85 of the largest value and meet to 2.1e-7; on
+`ni-fcc-magnon-us.in` the magnon moves by +2.8e-6 Ry at (0, 1/4, 1/4) and +3.4e-6 Ry at
+(0, 1/2, 1/2), and the Goldstone residual, 0.071 in P93 and the one number this file records
+for that cell, is the same to the bit (#15, `341f50d0`). A `calculation = 'bands'` list was
+completed to the crystal's group, 16 points for the 6 that `pw.x` prints on
+`pw_metaGGA/metaGGA-2.in` (#7, `ae5b7820`). `covers_a_whole_grid` refused 2 of 12 whole grids
+written to 7 decimals, as `pw.x` prints them, and clusters each axis within 1e-5 now (#33,
+`ca79ff3a`); the Kramers average of #14 was off for a wedge written as a list (#10,
+`53a03247`). `fixed_quantization_axis` transcribes `compute_ux` on `m_loc` in `pw.x`'s units:
+two moments of 0.1 at 175 degrees gave no axis and give `(0, 0, 1)`, and none of the 86
+committed noncollinear inputs changes axis (#4, `12aa7918`). A logical written without its
+closing period stayed a string, read as false by the builder and as true by
+`electrons_defaults` (#16, `5560cc26`). `defuqumat dos` and `pdos` ignored `&electrons` and
+`pseudo_dir` and wrote a DOS after an unconverged SCF with exit 0 (#26, `64a48c19`). A
+`mixing_from` history of another length raised at the first mix and is dropped with a warning
+(#22, `89190753`). The one-shot solves of the topology sources and at `k + q` threw the
+Davidson step counts away and now report a solve that did not settle (#23, `d70ea842`; on
+two-atom silicon every k-point settles in 18 to 36 steps, so the warning is silent on an
+ordinary run).
+
+**Silent wrong numbers: round three, groups A to E.** `run_absorption` puts a caller-built
+k-set through `for_spin` (#19, `ec78f238`): before, a direct call with `kpoints=` at
+`nspin = 2` or as a spinor gave weights summing to 2, and on silicon at 2x2x2 the fixed
+occupations held 16 electrons for 8. A nonmagnetic spin-orbit projection whose group is not
+used (the identity, or `nosym` on an explicit list) takes `sym_proj_so`'s Kramers average on a
+k-set halved by time reversal (#22, `df89b86c`): on three iodine atoms in a P1 cell at 3x3x3
+the wedge's `m_j` Loewdin charges were 7.9e-3 off the whole grid's, and are 4.1e-9 off now. The
+strain response's `deigenvalues` carry PAW's converged one-centre response on both routes
+(#20, `48955549`): on `si-paw-nosym` the valence width at Gamma moves from -0.5205959 to
+-0.5218892 Ry per unit strain, against -0.5218925 from a central difference of re-converged
+cells (2.5e-3 to 6.4e-6 relative); norm-conserving and ultrasoft runs do not move, and this
+file records no PAW deformation potential. `starting_ns_eigenvalue` on a spinor run is
+`ns_adj`'s noncollinear branch (#7, `21e9bfb1`): the `2 ldim` matrix built from the four
+packed blocks, eigenvalue `ispin ldim + m` of its ascending spectrum set, all four blocks
+written back; before, the `ud` block was diagonalised as a channel and `ns` left non-Hermitian
+(0.237 on a random canted d shell), and now it equals a line-by-line `ns_adj.f90` to 1.1e-16;
+no recorded run set it on a spinor. A spin spiral's transverse kinetic energy density `tau'_+`
+goes up to the dense grid through the displaced sphere, as `m'_+` does (#25, `a58a9b02`): on
+the TB09 hydrogen chain at `ecutrho = 8 ecutwfc` the spiral's own `tau`, unfolded onto the
+four-cell supercell, differed from the supercell's `tau` of the same states by 6.10e-6 in
+`tau_x` and `tau_y` and now by 5.73e-9, the level of the density (5.0e-9); the eigenvalue
+identity at a given `(rho, tau)` cannot see this (8.7e-15 and 1.8e-14 Ry), and I27's numbers
+are at dual 4 and do not move. A `c=` projection site is in angstrom, as in a `.win` file (#5,
+`c19130e1`): before, `get_wannier` and the Landau `trials=` read it in bohr, so a line copied
+from a `.win`, or the `.win` that `write_w90` writes, put the orbital 1.89 times farther from
+the origin in `wannier90.x` than here; `wannier90.x -pp` on the written `.win` now gives the
+site defuqumat uses. The QE reader takes the relaxed cell in bohr and angstrom as well as
+alat, and splits a position row instead of searching it, so `Ti1` is a label (#11, #12,
+`d10166cd`): before, `paw-vcbfgs` had no final cell and its positions used the starting cell
+(1.1e-3 bohr off), and the oscdft `Ti1` row was off by 5.4 bohr; no reference used by a test
+changed. The `height` shortcut of an STM image scans along `+a_axis` for every axis and in a
+left-handed cell (#10, `38b313af`): before, `axis=1` scanned along `-a2`, into the slab, so a
+constant-current image was `nan` everywhere or showed the bottom surface.
+
+**Crashes.** On a PAW ground state under TB09 or BJ06 the optical conductivity and SHG pass
+the potential's `c` to the one-centre D (round three #6, `cb22bef6`), and so do the Kubo
+quantum metric and the frozen real-time routes (the siblings, found beside #6 and landed in
+group E, `1024b5c5`). Before, all four raised in `onecenter` after the whole fixed-density or
+band solve. A PAW TB09 conductivity, SHG, quantum metric or real-time run has no number of its
+own yet.
+
+**Refusals added, by name: rounds one and two.** A matching plane of the tip continuation
+inside an augmentation sphere (#12, `db1e4e3f`) and a tip label that two `j` orbitals share in
+a fully relativistic dataset (#43, `1736b955`). `write_qe_save` and `write_elk_state` under
+k-point pools (#36, #42, `57c0aa74`). An Elk template run with `tefield`, with `tssxc` or
+`nosource` on a spin-polarized state, or with `msmgmt` under a GGA, and a group whose order is
+not `INFO.OUT`'s `nsymcrys` (#19, #2, `cb569e40`); an Elk template with `dftu != 0` (#1,
+`0b2f1af0`). An explicit k-list that is not a whole grid, for the four KPM traces (#11): this
+is wider than the wedge, since a few chosen points on a cell with no symmetry are refused
+too. A left-handed cell before any SCF on every orbital-field route (#28, `2ef692cc`), which
+newly refuses a zero-field run and an ultracell run with `nonlocal_term = 'none'` at nonzero
+flux on such a cell. Two refusals moved in front of the work they followed: a collinear
+`spin_resolved` KPM DOS (#27, `4f409847`) and the first unconverged flux of the
+magnetizability (#29, `9f6d8927`). Round two: `dE/dq` of a potential-only meta-GGA spiral
+(#13, `5ae7ff5f`); `cell_dynamics = 'none'` on a vc-relax, which `pw.x` runs as damped
+dynamics of the ions at a fixed cell and this code ran as a BFGS cell relaxation (#24,
+`4f342869`); `get_stress(terms=True)` on a pool store, before the total (#25, `71255bf5`); a
+nonzero `ATOMIC_FORCES` card, `CONSTRAINTS` with `nconstr > 0` (also in an SCF, where `pw.x`
+ignores it) and a nonzero `TOTAL_CHARGE` card (#5, `6a49bbb5`); `trism`, a nonzero
+`nextffield` and `gate`, even alone (#6); a saw-tooth field with a single-precision band side
+(#34, `e11160be`); and any meta-GGA with `rotate_moments`, whose turn leaves the vector part
+of `tau` unturned (the extra item, `f92c02e3`).
+
+**Refusals added, by name: round three, groups A to E.** The tetrahedra check the k-point list
+against the fold of its grid (`folded_grid`) and refuse another list with `tetra.f90`'s
+"cannot remap grid on k-point list" (#1, `1f587ffb`): before, the whole 4x4x4 grid of
+`al-tetrahedra` on the symmetric run had its corners on the first 10 of 64 points; the whole
+grid on a run with symmetry is refused, as `pw.x` refuses it; all 217 committed inputs with
+an automatic grid under `tests/data/qe/` pass on their own k-set, and the rebuilt k-sets
+(`with_cell`, `with_spin`, `with_turning_moments`) pass on the 14 inputs scanned; a run under
+`DEFUQUMAT_POOLS` was not verified. The projected force-theorem
+decomposition needs the whole k-grid at every direction, the system's own axis included (#26,
+`ba31b484`): on tetragonal Co along z the wedge of the magnetic group (6 of 18 points) put
+`d_xz` and `d_yz` up to 2.4e-2 Ry apart, where the whole grid has them equal to 5.8e-11; the
+total agreed to 5.8e-12. The phonon at `q` and the electron-phonon coupling refuse an explicit
+`K_POINTS` list that is not a whole grid (#27, `c09f3c72`), as `whole_grid_calculation` does
+since round one #11: before, the time-reversal half of a shifted grid written out at equal
+weights passed the guard and was summed as the whole zone. The Raman tensors, the vibrational
+spectrum and the electrostriction refuse a PAW dataset on a symmetry-reduced k-set (#2,
+`8b8f031b`): `F` built PAW's one-centre `D` from the raw wedge `becsum`, and on PAW silicon's
+three-point wedge the Raman tensor was 1.77e-5 and `d(eps)/dx` 6.54e-4 off the whole grid of
+the same cell; averaging the value of `becsum` alone gives 9.50e-5 and 1.58e-4, and with the
+tangent of `becsum` also full-zone the Raman tensor reproduces the whole grid to 2.0e-13; that
+complete fix is held, not written, and every PAW third derivative this file records (P43,
+P100, I87) is on `si-paw-nosym`, so none moves. `starting_ns_eigenvalue` with a residual SCF
+solver is refused on a fresh run (#3, `c7832e0f`): the hand-over iteration met the `ns_adj`
+gate of iteration 1, so the request was imposed on the converged `ns` and the run reported
+convergence with it; on `ni-u-unstable.in` with `starting_ns_eigenvalue(5,2,1) = 0.5` the
+total moved by -2.7553e-2 Ry and `SCFResult.ns` had 0.5 where the states give 0.999922; a
+Newton run seeded with `starting_from` or `starting_ns` runs. The forces, the stress and
+`dE/dq` are refused under a `TENSOR_MOMENTS` constraint (#21, `bc035fd8`), as under a
+constrained moment: the SCF makes `E + E_pen` stationary and these differentiate `E` alone; on
+`bn-ldau-noncol.in` at 25 Ry, `tensor_moment_penalty = 20` and `L.S` held at -0.40 (reached
+-0.354), the missing force `-dE_pen/dtau` is 4.9e-3 Ry/bohr on N and does not sum to zero over
+the atoms; an input with `tstress = .true.` warns and leaves `SCFResult.stress` empty. The Z2
+is refused when the run breaks time reversal (`domag`, a field or a constrained moment) and on
+a plane other than `k = 0` or `1/2` (#4, `e47da50a`): before, a magnetic spinor run and
+`get_z2(offset=0.3)` returned an integer, and on the doubled QWZ model the old Wilson route
+gave `nu = 1` at `offset = 0.3`; an antiferromagnetic Z2 (time reversal times a translation) is
+refused too, since no route reads such an operation. A constant-current STM scan needs
+`heights` (#9, `060b13f3`): the old default was one period, whose last plane is the first one
+again, so an image came back `nan` everywhere or one period too high; half a period still runs
+into the next copy of the graphite bilayer of the guide, so there is no default, and a scan of
+one period or more is refused. The structure factors refuse a spin spiral (#8, `e65c87a2`;
+the numbers are in P61).
+
+**Cost.** Round one: a turned tip holds its coefficients per operation, 80.2 MB to 0.020 MB on
+a 64x64 plane at 51 energies, the maps bit-identical (#34, `9471a7ee`); the momentum route
+builds basis Grams once for every energy, a `p` tip at 41 energies 1.099 to 0.917 s and 34.7
+to 5.0 MB of peak, the audit's case 3.3 GB to 0.47 GB (#7, `91907be5`); the Elk writer's
+muffin-tin expansion shares its harmonics, 10.30 to 3.29 s for 4 atoms at 110592 G-vectors,
+equal to the bit, at 59.3 to 87.8 MiB of peak for two atoms (#22, `a0f48ac3`, `7901710c`); no
+read of `c` for the PAW spheres in a run without PAW, 1.1327 to 1.0959 s per SCF of si8-1k
+under `lmbj` on four cores and not resolved on one (#24, `d2d21996`); `origin_tangent=True`
+passed again no longer rebuilds the `Calculation`, 2 solves to 1 (#20, `14f1d06b`). Round two:
+the default plane chunk is balanced over `n3`, `H psi` on si8-1k 6.98 to 5.72 ms and an SCF
+iteration 57.7 to 52.9 ms, bit-identical, and 13 of the 36 benchmark inputs have CPU times
+recorded with the padded planes (#8, `69c099c9`). Round three: the overlap quantum metric
+reads `nelec` from the valence charges, the removed build 0.743 s (#16, `94d33304`). The pairs
+are in `PERFORMANCE.md`.
+
+**Text corrected, the code left as it is.** Round one: the spinor `ns` average pairs as
+`new_ns` does and `new_ns_nc` does not, which matters on a three-fold orbit (#44, `OPEN.md`
+Part XXXI); `tangent_width`'s docstring (#30); the Pb tip preset quoted Bi's eigenvalues, the
+shipped file has `6S` and `6P` 8.54 eV apart (#35); the tip continuation is the WKB exponent
+without the amplitude (#49, P179); a written `pw.x` folder is for a run without
+`memory = 'small'` on more than one process per pool (#3) and needs a `pw.x` built without
+HDF5 (#31); the Elk core join spans a factor e (#6, P181); Elk's first diagonalisation from a
+written state runs without the external field (#21, P181); `c` is a field under `lmbj`, and a
+polarized `nspin = 2` run is admitted and not measured (#25, #26, P182). Round two: the
+Gamma-storage warning names all five reasons (#18); the `'atomic'` constraint target departs
+from `pw.x` at a value of 1 or more (#32, P77c); `tau` is mixed with the density (#19);
+`ddd_paw` is not averaged over the group, 3.2e-7 of 0.22 on AlAs (#21, the docstring; the
+average is a held patch); every production `ethr` reaches `tangent_width` as a row (#20,
+P148); QE's Davidson budget is 120 steps outside an SCF (#9, P4, `PERFORMANCE.md`).
+
+**Deferred, sized.** Round one: the exact-trace KPM spin DOS on the wedge, about a day (#13,
+`OPEN.md` Part XXXII item 1); the WKB integral redone per tip height, two thirds of a
+10-height sweep, where the shared quadrature moves the decay by up to 4.0e-4 relative on
+graphene and the two bit-identical pieces are about two hours (#33, #45); `enumerate_sphere`
+allocating the whole box in int64, 492 MiB for a sphere whose Miller indices in int32 are 67
+MiB, about two hours (#32); the Elk writer's symmetrizer and per-species work, three exact
+caches of about an hour each (#23); the hold acting in a bulk crystal whose lowest density is
+below 1e-4, 3.6e-6 Ry on fcc Ar (#46). Round two: the Thomas-Fermi starting `tau` at
+`nspin_mag = 4`, whose charge row is `2^(2/3)` = 1.5874010519682 times the one-channel value
+and whose vector part points against the moment, about fifteen lines that would move the
+recorded TB09 `ni-soc-nosym`, I27 and I110 runs (#14); the `rho_ddot` fit vector storing both
+members of every `(G, -G)` pair, about 0.80 GB of P146's 4.77 GB on the 157-atom slab (#17);
+`tau` under `mixing_space = 'g'` staying the dense box, 4.96 MB against 1.14 MB at depth 8 on
+`si2-tb09.in` (#27); the second `becsum` `jvp` of the PAW whole-k loops, about 2.2 per cent of
+a PAW silicon phonon (#30); the magnon kernel rebuilt at every `q`, about 12 per cent of a
+three-point dispersion on `h-fcc-magnon.in` and 2.7 per cent on `ni-fcc-magnon-us.in` (#31);
+the `xy` pass by rows, 2 to 6 per cent of its kernel at best and a loss on si8-1k-ecut30
+(#28); `vkb` rebuilt on every `h_psi` at one k-point, 5.2 per cent on si8-us-1k and 7.9 per
+cent on si8-1k against 386 MB resident on si128-1k-ecut30 (#29); `get_stress(terms=True)` in
+memory mode, whose forward tape grows by about 0.5 MB per k-point (#25). Round three: the
+walked Raman route's `ort` blocks built on the host, 7.37 GB and 64.4 s on the P25 yardstick
+(#28); `band_precision = 'mixed'` under Newton-Krylov, which runs the whole Newton solve in
+single and still converges to the double state, 152 against 35 evaluations of `F` on
+`si16-1k.in` and 62 against 33 on two-atom silicon (#29).
+
+**Seen beside a fix and not followed.** Three are entries of `OPEN.md` Part XXXII (items 3 to
+5): the SCF energy of hcp aluminium on a 2x2x2 grid, 6.8e-7 Ry apart between the wedge and
+`nosym` (beside round two #12); `starting_ns_eigenvalue` applied again by every fresh
+`run_scf`, the final SCF of a vc-relax included, where `pw.x` applies it once (beside round
+three #3); and `run_ultracell_stm` handing the scan's `heights`, in bohr, to
+`_refuse_an_augmented_plane` as crystal coordinates (beside round three #9). Four more are
+recorded only in the fix logs. `momentum_weights` recomputes `channel_basis` on the exit Gram
+for every height, energy and channel, 0.38 s of 1.54 s at 41 energies in a profile; hoisting it
+is bit-identical and about an hour with a timing pair (round one #7). The Y3 record of
+`OPEN.md`, "avg 19.8, up to 1 of 40 bands unsettled", did not reproduce on 2026-11-20: 2 to 10
+steps a call, every band settled (round two #9). `forces/torque.py` builds its potential
+without `tau`, so a meta-GGA stops in `v_of_rho` before `onecenter`, a wider gap that was not
+traced (round three #6). And the same head gives last-digit differences in the total energy
+with and without `MKL_NUM_THREADS=1` (-63.17798906144863 against -63.17798906144861 Ry on
+si8-1k), which is the host BLAS thread count and not the code (round two #9), so both arms of
+a bit-identity check take the same environment.
+
+**Round three, groups F and G (2026-11-21).** *A refusal lifted on a measured number (#13,
+`1915ce05`).* A run from `with_turning_moments()` was refused with "needs nosym" at every
+turned orientation, although the wedge guard of the torque, its message and the guide offered
+it. `get_torque` and `get_orientation_torque` take it now. Its wedge is cut by the identity and
+the inversion, which commute with `dH/dtheta` at every orientation, and `_respin_kpoints`
+keeps the wedge bitwise under the turn. Measured, wedge against `nosym`, both arms in one
+process on the same cores, torques in Ry/rad. Tetragonal Co
+(`co-tetragonal-anisotropy-soc.in`, 10 points against 18, the converged scalar-relativistic
+density): the orientation torque at Euler angles (0.4, 0.7, 0.3) is (1.530206e-5,
+-3.660039e-5, 1.337e-7) and the two arms are 2.2e-11 apart, the band energy 1.8e-15 Ry;
+`run_torque` at 45 degrees is -4.059076e-5 (`K1` = 0.5523 meV), 1.0e-11 apart. **The control
+that shows the comparison can fail**: the wedge of the unturned moment's magnetic group (6
+points) kept at the same rotation is 3.6e-5 away in the torque and 2.3e-5 Ry in the band
+energy. Hexagonal Co at `ecutwfc = 12`, where the inversion swaps the two atoms (10 against
+18): 1.2e-11 on 6.3e-5 and 4.1e-11 on 7.0e-5. The torque of a rigid turn is a cell total, which
+is what separates this from the projected force theorem of #26, resolved by atom and refused on
+every wedge. Only ultrasoft cells were measured. Not lifted: a PAW dataset at a turned
+orientation (no PAW number), `frozen_expectation` (measured equal, 3.9e-12 Ry on 7.6e-7, and
+left for the user), and `relax_orientation`, which now refuses that wedge at its door, because
+`Calculation.with_texture` refuses a turn with symmetry at the second step. *Tests (#15,
+`824fa3aa`).* The wedge refusal of the torque is tested through `run_torque` at `angle = 0`
+and `run_orientation_torque` at the identity; with either call site deleted in the old code a
+test fails. *Refusals (#14, `7603f76b`).* The single-precision refusal of I119 also covers
+`relax_orientation`, `frozen_expectation` and `spiral_spin_orbit_energy`, each of which
+reached `fixed_density_states` with `DEFUQUMAT_BAND_PRECISION` at `single` or `mixed`; the
+spiral's leg asks the calculation it is handed. Nothing was measured in single precision.
+*Text (#18, `6e741048`).* The spirals guide says that the projected density of states of a
+spiral gives an error, also with `nosym`. *A silent wrong number (#24, `6aef4873`).* **A
+checkpoint is read only by the run that wrote it.** `checkpoint_dir` and `mixing_from` given
+to the `Calculator` constructor crossed into every derived calculator and into the ground
+states of `get_spiral_scan`, `get_relaxed_anisotropy` and `get_magnetoelectric_tensor`.
+Measured on `co-tetragonal-relaxed-mae.in` (20/160 Ry, 3x3x2, `nosym`, the default functional,
+`conv_thr = 1e-10`): each direction on its own gives `E(x)` = -74.4057722501 Ry and `E(z)` =
+-74.4058033045 Ry, so `E(z) - E(x)` = -0.422517 meV; with one `checkpoint_dir` under both, the
+`z` run resumed the state the `x` run left at iteration 10, ended at -74.4057722501 Ry with the
+moment (1.785, 0, 0), 90.000 degrees from where it was asked, and the difference read 0.000000
+meV. Through the facade the same calculator gives -0.422517 meV now, with one warning. The two
+options no longer cross (`RUN_STATE_OPTIONS`), each drop is warned once, `checkpoint_every`
+stays, a directory named at the child's own `get_scf` still resumes, and
+`run_relaxed_anisotropy` refuses a `checkpoint_dir` named for more than one direction.
+`get_relax` keeps the constructor's directory, which there is the relaxation's own restart
+directory. The 0.447302 meV of P87 is at `noncollinear_gga = 'kubler'` and does not move.
+*Held (#23).* `k_batch = 'fit'` and the band-batch chooser price a whole mesh with a streamed
+store where the SCF holds the store on the device, so the estimate is low by `wf_spin S`:
+77.511 against 79.073 MB on two-atom Si at 12 Ry and 64 k-points (`david = 4`), the gap of
+1.562 MB being `S` to the digit, 2.0 to 4.2 per cent there and 7.6 per cent on the hydrogen
+chain, not the 8 to 23 of the finding. The fix is `round3-23-fit-device-store.patch`, **not
+applied because one recorded choice flips**: `h40-chain-lsda.in` on the GTX 1060 with the
+pool cut to 2225 MB is recorded at 14 bands (`PERFORMANCE.md`, "The band dial, budgeted from
+the card") and would be 11 (14 bands with the store on the device is 1378.1 MB against a
+budget of 1335.0). Every recorded `'fit'` choice of the k-chunk stays what it is (the fix
+log has the rebuilt cases with their margins). *Deferred (#17).* Under fixed
+occupations the ultracell density and `tau` passes transform every state, and at `nbnd = 24`
+on silicon 5/6 of them have a weight of exactly zero: 48 columns against 8 on two cells, 1920
+box transforms against 320 over a run. A form that reads the count from the weights is bitwise
+equal in the density, the levels, the occupations and the energy on four cases at
+`nspin = 1` (`round3-17-ultracell-weighted-states.patch`); the timing, 10.241 against 8.620
+s (medians of 5, four cells), was taken at a load of 8 to 10 and is an indication only, and
+`nspin = 2`, a spinor and `tau` were not run.
+
+**Decisions taken without the user.** The user said on the afternoon of 2026-11-20 "Take the
+next decisions by yourself". The rule from then on was the conservative option, a refusal or
+a deferral over a new form, and never to move a number this file records without a remeasured
+row. Each entry of `notes/audit-1120/decisions.md` follows, with its reason and what would
+change it, for the user to review. Where the list gives no condition, it says "not stated".
+
+- *Round one #9, #10: graphane at 20 bohr moves by 5.8e-8 eV in the gap, accepted as
+  round-off and committed* (`b59f3277`). Reason: the code before the fix gives exactly that
+  difference between the performance and the efficiency cores, the code after lands on the
+  other end point to 1.9e-12 eV, the two face means differ by 4e-13 Ry, and P182 records the
+  gap to 1 meV. What would change it: the slow `tests/regression/test_lmbj_vacuum.py`, which
+  is the check.
+- *Round two #14, the Thomas-Fermi `tau` seed at `nspin_mag = 4`: deferred.* Reason: fifteen
+  lines that change the seed of every magnetic spinor or spiral meta-GGA run, three of which
+  this file records. What would change it: the nickel pair with the old and the new seed,
+  four SCFs on the same cores.
+- *Round two #5, #6, #34: refusals rather than new physics.* Reason: the conservative rule.
+  What would change it: the full external-force fix, sized in the fix log (`extfor` on
+  `System`, `-sum F . tau` in the energy, a slow CO relaxation against `relax-extfor`'s
+  benchmark); for the others, not stated.
+- *Round two #26: the CLI's `conv_thr` fallback stays 1e-8*, the old default, not `pw.x`'s
+  1e-6. Reason: no CLI output moves. An unconverged SCF in `dos` or `pdos` writes nothing and
+  exits 1. What would change it: not stated.
+- *Round two #3, the fit vectors turned under `rotate_moments`: held.* Reason: right by
+  construction (the fit vectors match a fresh evaluation to 6e-16), but on the oblique cobalt
+  it moves the iterations from 59 to 48 on one arithmetic order and from 53 to 60 on another,
+  so no saving is shown, and it would move I78, I113, I112's end state and the guide's "53
+  iterations". The call site's comment now says what the code does. What would change it: the
+  slow anisotropy tests rerun with the patch and the rows remeasured.
+- *Round two #17 and #27: deferred.* Reason: #17 needs a trajectory check and moves P146's
+  recorded 4.77 GB; #27 fails the round-off rule, since the Thomas-Fermi start of `tau` has
+  2.4e-4 of its norm off the smooth sphere. What would change it: the iteration counts on both
+  arms on the same cores, as the fix log lists.
+- *The extra item of round two: `rotate_moments` refuses any meta-GGA* (`f92c02e3`), rather
+  than turning the vector part of `tau`. Reason: the turn would be new code in the Route C
+  state. What would change it: not stated.
+- *Round two #4: the fixed GGA axis follows `compute_ux` literally* (`12aa7918`), with its
+  dependence on the lengths (`|m|^2 > 1e-12` seeds, `|ux x m|^2 < 1e-6` counts as parallel).
+  Reason: it is the reference code's rule, and none of the 86 committed noncollinear inputs
+  changes axis. What would change it: a case where two small cants, written once as a card and
+  once as per-species moments, take two GGA branches and the user wants one rule.
+- *Round two #15 landed although the ultrasoft nickel magnon moves* by +2.8e-6 Ry and +3.4e-6
+  Ry. Reason: this file records only the Goldstone residual of that cell, which is unchanged
+  to the bit, and no magnon energy. What would change it: not stated.
+- *Round two #11 and #21: held as patches.* Reason: #11 reaches several slow PAW spinor files
+  that only the user may run; #21 has three options and its size is 3.2e-7 of 0.22 on AlAs.
+  What would change it: the slow numbers.
+- *Round two #30 and #31: deferred*, with their sizes. Reason: no round-off check and no
+  timing pair yet. What would change it: the pairs the fix log lists.
+- *The gate cost of the exchange-correlation group of round two is kept in the gate*: 14 s
+  (#15), 7 s (#12), 3.2 s (#4). What would change it: the user moving the 14 s test to the
+  slow set.
+- *Round two #8, the balanced plane chunk: kept* (`69c099c9`). Reason: the transforms, the
+  density and whole SCFs are bit-identical, with timing pairs. The CPU times of 13 benchmark
+  inputs recorded before it carry the padded planes; `PERFORMANCE.md` has a dated paragraph
+  and not 13 retimed rows. What would change it: a reading of "never move a recorded number"
+  that includes timings that only improve.
+- *Round two #9, `pw.x`'s allowance of five unsettled bands inside an SCF: held.* Reason: no
+  run moved, but it lets unsettled bands into the density in the stall regimes
+  `PERFORMANCE.md` records, and it shows no timing gain. What would change it: a cell where it
+  saves steps, with a pair.
+- *Round two #28 and #29: deferred.* Reason: #28 is at most 1 to 2 per cent of an iteration
+  and a loss on si8-1k-ecut30; #29 saves 5 to 8 per cent of an iteration at one k-point and
+  costs 290 to 386 MB on the large one-k cells, which is the choice the memory default was
+  made for. What would change it: the user's pick among the three options of #29.
+- *Round two #20: an open question, not a decision.* `d719e1aa` moved the Newton autodiff's
+  tangent width from 1e-11 to 1e-5. Whether P148's autodiff numbers went through
+  `ScfResidual.jvp` is not checked; P148 has the dated paragraph.
+- *Round three #1: the tetrahedra refuse the whole grid on a run with symmetry* (`1f587ffb`),
+  rather than folding it with the identity. Reason: `pw.x` refuses it too, and all 217
+  committed automatic inputs pass. What would change it: not stated.
+- *Round three #26: the projected force theorem refuses a wedge at every direction*, without
+  the torque's identity-and-inversion exception (`ba31b484`). Reason: an inversion can swap
+  two magnetic atoms. Wide on purpose. What would change it: symmetrising the projections with
+  the magnetic group, which is new physics here.
+- *Round three #2: PAW third derivatives on a wedge are refused, not fixed* (`8b8f031b`).
+  Reason: the audit's fix closes the epsilon identity and makes the Raman tensor worse
+  (1.77e-5 to 9.50e-5 off the whole grid); the complete fix reproduces the whole grid to
+  2.0e-13 but is about 100 lines in three files, and its strain half is not measured. What
+  would change it: the user asking for the complete fix.
+- *Round three #20: landed* (`48955549`), although PAW `deigenvalues` move by up to 4.59e-3 of
+  1.13. Reason: this file records no PAW deformation potential (P151, P174's table and the
+  guide are norm-conserving), and the new value meets a finite difference of re-converged
+  cells to 6.4e-6 where the old one missed by 2.5e-3. What would change it: the user; a revert
+  of `48955549` holds it.
+- *Round three #28: deferred*, sized at 7.37 GB and 64 s before the first chunk on the P25
+  yardstick. Reason: no round-off check on a real walked run. What would change it: that
+  check and a pair.
+- *Round three #3 and #21: refused by name* (`c7832e0f`, `bc035fd8`). Reason: the missing
+  penalty term of #21 is 4.9e-3 Ry/bohr on BN and does not sum to zero, and writing it is new
+  physics. What would change it: not stated.
+- *Round three #25: landed* (`a58a9b02`). Reason: it moves only the double-grid case, which
+  no committed meta-GGA spiral input sets; I27 at dual 4 is unchanged. What would change it:
+  not stated.
+- *Round three #29: left as it is, deferred.* Reason: the run always ends in double, so the
+  result is right; the cost is 152 against 35 evaluations of `F` on si16. What would change
+  it: the user picking the refusal patch or the three-line "Newton in double", which needs a
+  GPU timing.
+- *Round three #5: a `c=` site is read in angstrom* (`c19130e1`). This changes what an
+  existing Python input means (it was bohr). Reason: a `.win` written by `write_w90` meant
+  another site to `wannier90.x`, no committed file uses `c=`, and the guide's Limits note says
+  so. What would change it: not stated.
+- *Round three #4: the Z2 refusal is wide* (`e47da50a`): an antiferromagnetic Z2 is refused
+  too. Deferred with it: a check that the Wannier centres come in Kramers pairs at the two
+  ends of the pump. What would change it: the slow bismuthene and germanene flows, which the
+  threshold of that check needs.
+- *Round three #6, the siblings: landed in group E* (`1024b5c5`), with four tests. Reason: the
+  two-line fix mirrors the call `nscf.py` already makes and can move no number, since the
+  routes raised before.
+- *Round three #9: a constant-current scan needs `heights`* (`060b13f3`), rather than a new
+  default. Reason: the reader's half period fails on the guide's graphite cell; only a scan to
+  the vacuum midpoint was right (1.5000064 against 1.5). What would change it: the user
+  choosing a default that ends at the middle of the vacuum gap, about two hours with tests.
+- *Round three #8: a spiral's structure factors are refused as a whole* (`e65c87a2`), the
+  charge columns included, which were right. What would change it: the user choosing to keep
+  the charge, or the satellites `H -/+ q`, about half a day.
+- *Seen and left for `OPEN.md`* (Part XXXII items 3 to 5): the hcp aluminium wedge against
+  `nosym` SCF energy on a 2x2x2 grid, 6.8e-7 Ry apart; `starting_ns_eigenvalue` applied again
+  by every fresh `run_scf`; `run_ultracell_stm` passing `heights` in bohr to
+  `_refuse_an_augmented_plane` as crystal coordinates.
+
+Three choices that a fix agent made inside its own entry and flagged as the user's are not in
+that list: the refusal of round one #11 sits in the function the four KPM traces share, so it
+is wider than the spin DOS (the narrow form moves the check into `kpm/dos.py`); an Elk
+template without `elk.in` gets a warning under a GGA or on a spin-polarized state, not an
+error (round one #19); and round one #43 was read as a refusal, not as text. Four entries of
+`decisions.md` are not separate lines above: the #3 patch was refreshed to apply on `f3b7ba41`
+(`git apply --check` clean; the one conflict, the call-site comment of `2f0a776e`, was
+resolved to the patch's own text); the mixing agent's note on `tau` under `rotate_moments` is
+the extra item; the two entries on the siblings of round three #6 are one line; and the note
+on `test_input_sweep.py` is in the slow-file paragraph below.
+
+**Decisions of 2026-11-21, with groups F and G** (the second part of `decisions.md`). The fix
+agents of this day ran on Fable and under the workstation rule of 2026-11-15, 5 GB a run and
+one python at a time, so the gate ran on Triton, submitted on the user's word of that morning
+("If you have to run heavy things, just launch them to Triton"). #13: the turning wedge is
+lifted for the two one-shot torques only; PAW at a turned orientation, `frozen_expectation`
+and `relax_orientation` keep `nosym` (what would change each: the PAW pair, one keyword, an
+exemption in `with_texture`); PAW stays inconsistent between the identity and a turned
+orientation, with no number either way; the two wedge comparisons are in the gate at about 26
+s against the five-second rule, with a bound of 2e-10 Ry/rad, three times the largest
+difference measured here. #14: the spiral's leg asks the calculation it is handed, and the
+facades still run their SCF before the refusal. #24: the shape was decided before the fix (a
+checkpoint is read only by the run that wrote it; no subdirectories; no run fingerprint); the
+drop is warned, not silent, because what is lost is a restart; the relaxed anisotropy refuses
+a named directory only for more than one direction; `mixing_from` named in a multi-run call,
+the spiral scan's named directory and the magnetoelectric `scf_options` are left, being a
+history or a chain with the same fixed point; `get_relax` keeps its directory. #23: neither
+half is landed, although the k-chunk half flips nothing, because the instruction was to hold
+the fix if any recorded choice flips. #17: not landed although bitwise equal, because the pair
+is not clean. The rule text of `scope.md`, the source map, `calculator.md` and the audit row
+of `CLAUDE.md` is applied in commits of its own.
+
+**Held patches** (`notes/audit-1120/`, not applied). The seven patches of 2026-11-20 were
+checked at `9750e507` with `git apply --check`: each applies clean except the superseded one,
+which needs `--3way`. The two of 2026-11-21 were checked at `277ce4d5`.
+
+- `round2-3-rotate-fit-vectors.patch`: turns the `rho_ddot` fit vectors under
+  `rotate_moments`. Held: no saving shown, and it would move I78, I112 and I113.
+- `round2-9-scf-stragglers.patch`: `pw.x`'s allowance of five unsettled bands inside an SCF.
+  Held: a null on every cell measured, and it changes the SCF's exit in the stall regimes.
+- `round2-11-kubler-cut-channels.patch`: the `'kubler'` GGA on the cut channels of the PAW
+  sphere. Held: it moves the one-centre energy of a `'kubler'` PAW run and reaches slow PAW
+  spinor files.
+- `round2-21-symmetrize-ddd.patch`: QE's group average of `ddd_paw` in the SCF. Held: three
+  options, 3.2e-7 of 0.22 on AlAs, and it moves recorded PAW numbers where an `l > 0`
+  multipole survives the group.
+- `round3-2-paw-wedge-becsum.patch` and `round3-2-raman-wedge-experiment.py`: the value split
+  of `becsum` for the PAW third derivatives on a wedge. Held: alone it is worse; the complete
+  fix also needs a full-zone tangent.
+- `round3-29-mixed-newton-refusal.patch`: refuses `band_precision='mixed'` with
+  Newton-Krylov. Held: the result is right without it, and the choice has three options.
+- `local-tail-9-10-on-900af157.patch`: the local Gaussian tail of the mBJ hold. A record
+  only, superseded by the mean per face the user picked.
+- `round3-23-fit-device-store.patch`: the whole-mesh candidate of `k_batch = 'fit'` and the
+  band-batch chooser priced with the store the SCF will hold, with its tests. Held: the
+  recorded 14 bands of the hydrogen chain on the GTX 1060 become 11. Its k-chunk half flips
+  no recorded choice and can land apart.
+- `round3-17-ultracell-weighted-states.patch` and `round3-17-ultracell-timing.py`: the
+  ultracell density and `tau` of the weighted states only, under fixed occupations. Held: no
+  clean timing pair, and three regimes not run.
+
+The text for `.claude/rules/scope.md`, `.claude/rules/reference-source-map.md` and the audit
+row of `CLAUDE.md` was first left as a patch by the agent that wrote this record, and is
+applied as one commit of its own ("rules: scope, the source map and the audit row follow the
+audit fixes of 2026-11-20"), which the user can drop.
+
+**Open choices for the user, by round.** Round one: write the external field into Elk's `B_s`
+(#21; it moves the start of the P181 O2 rows, about an hour with a remeasured row); write
+`dftu = 0` and no matrix instead of refusing a DFT+U template (#1; needs one measured first
+residual in Elk); the three exact caches of the Elk writer (#23, about three hours); the form
+of the WKB quadrature (#33, #45); the int32 `enumerate_sphere` (#32); the three options for
+the hold in a bulk crystal with a point below 1e-4 (#46); the narrow or the wide refusal of
+#11; a warning or an error for a template without `elk.in` (#19). Round two: the full
+external force (#5); the Thomas-Fermi `tau` seed at `nspin_mag = 4` (#14, four SCFs on nickel
+decide it); #17 and #27; landing #3, #9, #11 or #21 from the patches; `vkb` at one k-point
+(#29: store at `nk = 1`, store under a byte budget, or keep and note); the `xy` pass by rows
+(#28); the second `becsum` `jvp` (#30); the magnon kernel built once (#31); the fixed GGA axis
+(#4: keep `compute_ux`'s rule, under which two moments of 0.01 count as parallel at any
+angle, or a rule that does not depend on the lengths); `calculation = 'bands'` with
+`K_POINTS automatic`, which this code reduces with the crystal's group and `pw.x` with the
+lattice's (seen beside #7); whether the 28 s fast part of
+`tests/unit/test_spiral_hubbard_gradient.py` (#1) and the 14 s test of #15 stay in the gate;
+`get_stress(terms=True)` in memory mode, which needs a `jacfwd` over the chunked walk (#25).
+Round three: the complete PAW wedge fix of #2; whether to keep #20; the Raman `ort` blocks
+(#28); #29 (leave, refuse, or Newton in double); a default for the constant-current range at
+the vacuum midpoint (#9); the spiral structure factors with the charge kept or with the
+satellites (#8); the Kramers-pair check of the Wannier centres in the Z2 (#4); for #13, the
+PAW pair on the turning wedge (one `soc_scale = 0` SCF of the nickel cell of
+`tests/regression/test_orientation_paw.py` and two one-shots), the lift of
+`frozen_expectation` (one keyword at its call), `relax_orientation` on the turning wedge (an
+exemption in `Calculation.with_texture` and a two-step test), and whether the two wedge
+comparisons, about 26 s warm, stay in the gate; for #14, whether the three facades ask for the
+band precision before their SCF; for #24, a run fingerprint so that one directory named by
+hand at two runs is told apart (positions, cell, moments, field, spiral `q`, axis,
+`soc_scale`; about 50 lines and half a day, a mismatch raising or warning), and a
+subdirectory per direction, `q` or field so that the multi-run workflows can restart (about
+40 lines); #23 (land both halves and mark the 14 bands as superseded, land the k-chunk half
+only, or measure the chain on a card first); #17 (the pair on a quiet machine at 4 and 8
+cells, then one TB09 cell). Decided by the user on 2026-11-21: the branch is merged into master and pushed;
+`notes/audit-1120/` stays in the repository, and the two commits of the rule files stay.
+
+**Slow files the changes reach, not run when this list was written, for the user** (run later the same day, see "The slow files were then run" below)**.** The union over the fix-log entries
+of the three rounds. In `tests/regression/`:
+`test_anisotropy.py`, `test_conductivity.py`, `test_davidson_zero_root.py`,
+`test_dispersion.py`, `test_dos.py`, `test_elastic_one_trace.py`, `test_electron_phonon.py`,
+`test_electrostriction.py`, `test_gamma_only.py`,
+`test_kubo_curvature.py`, `test_ldau_flavours.py`, `test_lmbj_vacuum.py`,
+`test_lsda_response.py`, `test_magnetic_bloch_slow.py`, `test_magnetic_ultracell_slow.py`,
+`test_magnetoelectric.py`, `test_mbj.py`, `test_nesting.py`, `test_noncollinear_gga.py`,
+`test_noncollinear_hubbard_resume.py`, `test_noncollinear_pdos.py`, `test_nonlinear.py`,
+`test_orbital_magnetization.py`, `test_pdos.py`, `test_phonons.py`, `test_phonons_at_q.py`,
+`test_phonons_at_q_nlcc.py`, `test_photocurrent.py`, `test_piezoelectric.py`,
+`test_polarization.py`, `test_qpi.py`, `test_quantum_metric.py`, `test_realtime.py`,
+`test_realtime_augmented_update.py`, `test_realtime_gamma.py`, `test_realtime_hierarchy.py`,
+`test_realtime_regimes.py`, `test_realtime_shg.py`, `test_relax.py`, `test_response.py`,
+`test_scf_solvers.py`, `test_shg.py`, `test_spectra.py`, `test_spin_channels.py`,
+`test_spin_spirals.py`, `test_spin_spirals_augmented.py`, `test_spinor_dielectric.py`,
+`test_spinor_hubbard_symmetry.py`, `test_spinor_pdos.py`,
+`test_spinor_projection_symmetry.py`, `test_spiral_relaxation.py`,
+`test_spiral_supercell.py`, `test_stm.py`, `test_streamed_phonons.py`,
+`test_streamed_strain.py`, `test_streamed_third.py`, `test_structure_factors.py`,
+`test_tddft.py`, `test_ten_site.py`, `test_tetrahedra.py`, `test_tip_orbitals_slow.py`,
+`test_topology.py`, `test_transport.py`, `test_ultracell_augmented.py`,
+`test_ultracell_stm.py`, `test_ultracell_sts.py`, `test_ultrasoft_magnon.py`,
+`test_vc_relax.py`, `test_wannier.py`, `test_wannier_sitesym.py` and
+`test_wedge_completion.py`. The slow tests of these files of `tests/unit/`:
+`test_angular_momenta.py`, `test_band_precision.py`, `test_calculator.py`,
+`test_checkpoint.py`, `test_eager.py`, `test_elk_allelectron.py` (two tests),
+`test_kpm_traces.py` (the spin DOS without inversion), `test_ldos_mixing.py`,
+`test_magnetic_bloch.py`, `test_mixing_space.py`, `test_parallel.py`,
+`test_piezo_machinery.py`, `test_projection_blocks.py`, `test_qe_density.py`,
+`test_quantum_metric.py`, `test_realtime.py`, `test_realtime_field.py`,
+`test_scf_restart.py`, `test_spiral_hubbard_gradient.py`, `test_spiral_scan_one_shape.py`,
+`test_topology_curvature.py`, `test_topology_streaming.py`, `test_topology_z2.py` and
+`test_velocity_locality.py`. Beside the tests, `docs/figures/topology_wannier_flow/compute.py`
+calls the Z2 (round three #4). Four things to know when running them. (1) **One test is
+expected to fail**: `tests/regression/test_ldau_flavours.py::test_a_fixed_tensor_moment_tracks_its_target`
+keeps the expected values of the old contraction (-0.109, -0.355), by the user's decision on
+round one #8; its numbers are to be remeasured and P62e updated, and since round three #21
+its input, which carries `tstress = .true.`, warns and has no stress. (2) **Four slow tests
+are new and were not run as tests**, their numbers taken from the same computation in a
+script: `test_the_channel_maps_on_the_wedge_are_those_of_the_grid`
+(`test_tip_orbitals_slow.py`), `test_the_hubbard_gradient_is_the_slope_of_the_converged_energy`
+(`tests/unit/test_spiral_hubbard_gradient.py`), `test_a_metal_off_inversion_centres_matches_nosym`
+(`test_phonons.py`) and `test_the_paw_deformation_potential_matches_a_finite_difference`
+(`test_electrostriction.py`). (3) V3 of `test_tip_orbitals_slow.py` should read about 1e-16
+where P179 records 0.0, inside its `rel=1e-11`. (4) Several changes sit on lines every run
+passes, with no change expected and none measured on the cells tried: the cast in every group
+average (round one #40), the `Calculator` setup table (round one #20), the balanced plane
+chunk on a CPU (round two #8, bit-identical), the `m_loc` axis test of every noncollinear
+`Calculation` (round two #4) and the lift of `tau` in every meta-GGA run (round three #25).
+**Two corrections to the fix logs:** `tests/regression/test_input_sweep.py` has only the
+`regression` mark and no `slow` mark, so it is in the fast gate; the entries of round two #7
+and #24 call it slow, and the entry of #5 has it right (250 passed and 2 skipped in 6 s). And
+`tests/regression/test_gauge_multiplets.py` has no mark at all, so it is in the fast gate too;
+the entry of round three #20 lists it among its slow files. Both are left out of the list. One file is reached only by a held patch and is not in the list:
+`tests/regression/test_spinor_response.py` (round two #11). **Groups F and G add**
+`tests/regression/test_relaxed_anisotropy.py`, `test_orientation_paw.py`, `test_spiral_soc.py`
+and `test_continuation.py` to the list (#13, #14, #24); `test_anisotropy.py`,
+`test_spin_spirals.py`, `test_magnetoelectric.py`, `test_vc_relax.py` and the slow tests of
+`tests/unit/test_calculator.py`, which they also reach, are in it already. Other slow files
+derive a calculator and so pass through `_derived`, and none builds one with
+`checkpoint_dir`. The held patch of #17 would reach `tests/regression/test_ultracell.py`,
+`test_ultracell_regimes.py`, `test_ultracell_augmented.py`, `test_ultracell_stm.py` and
+`test_ultracell_sts.py`.
+`tests/regression/test_ldau.py` is not in the list either: it sets `starting_ns_eigenvalue`
+on a collinear run and takes the unchanged branch of `adjust_ns`, and the entry of round three
+#7 names no slow file.
+
+**Gate time the fixes add**, each figure measured as its own process, so the gate grows by
+less. Round one: 14 s for the internal-translation test of #37 (at a peak of 2.1 GB for the
+fast part of its file), 8.0 s for the tests of #9 and #10 in `tests/unit/test_lmbj.py` (the
+file goes from 18 tests in 21.8 s to 27 in 29.8 s) and 5.5 s for those of #47 and #24. Round two: 28 s for
+the fast part of `tests/unit/test_spiral_hubbard_gradient.py` (#1), about 2.5 s for the stress
+test of #25, 7.8 s for the end-to-end restart test of #22, 1.8 s for #34, about 24 s for the
+exchange-correlation group (14 s for #15, 7 s for #12, 3.2 s for #4) and 22 s for
+`tests/unit/test_one_shot_solves_report.py` (#23); the times of
+`tests/unit/test_plane_chunk.py`, of the new test in `test_subspace_eigh_tangent.py` and of
+`tests/unit/test_cli.py` were not given. Round three: group A 33.4 s, B 9.2 s, C about 23 s,
+D about 21 s, E about 2 s, F about 35 s with a warm kernel cache (30 s for
+`tests/unit/test_torque_wedge.py`, 82 s with a cold one, and about 4.5 s for
+`tests/unit/test_band_precision.py`), G 6.2 s (`tests/unit/test_checkpoint_scope.py`, 18
+tests). The other new fast tests of round one (the tip, KPM, Hubbard,
+magnetic-route, Elk and `qe_density` tests) have no time in their entries. No sum is given
+here: the figures were taken under different loads, each as its own process, and the gate
+line below is the measurement.
+
+**A note for P178.** Two statements of that record do not hold. (1) Its slow test of the KPM
+spin DOS, `test_the_spin_dos_of_a_spinor_without_inversion_is_zero`, cannot see wedge weights:
+the two Se atoms of `_zincblende_selenium` sit on the zincblende sites, which is the diamond
+structure, and the group has 48 operations with inversion, measured. With inversion and time
+reversal every band is spin-degenerate at each k, so `Tr[sigma_i T_n(H_k)]` vanishes at every
+k: on `13501076` a written-out 2-point wedge and two time-reversal halves all give 1.8e-14 to
+3.2e-14 against a DOS peak of 18.5. So the test passes whatever weights the wedge carries, and
+the 2.3 states/Ry that P178 records before its fix cannot have come from the wedge weights;
+its cause was not found. Zincblende SeI (24 operations, no inversion, its SCF 5 to 12 s on
+this workstation) would make it a real check: there the wedge written as a list reads 3.5e-2.
+The test was not changed, being slow; replacing its cell is the user's to decide and run.
+(2) "No differentiated caller passes such a row", in "Found while fixing", is wrong: every
+production solve passes a row (round two #20; P148 has the correction and the open question).
+
+**The slow files were then run on Triton, at the user's pick, and the run was stopped by the user before its last file ended.** Array job 21740810 at `ceedcaf6` (2026-11-21, one task per file of `notes/audit-1120/slow-files.txt`, 12 at a time, each 8 CPUs and 32G on `batch-csl`): **83 of the 99 files passed, 15 files have failures (18 tests), and one file did not finish**: `tests/regression/test_realtime_regimes.py` was cancelled after 1 h 21 min with three tests done. The 18 failing tests, each with what it read:
+
+- `tests/regression/test_anisotropy.py::test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeeman_term`: 7.24e-06 against a bound of 1e-06 (line 1500). The branch touches this file in `1915ce05` (#13).
+- `tests/regression/test_elastic_one_trace.py`, three tests: 0 traces counted for six columns. **The same three fail at master `e22a1c5d`.**
+- `tests/regression/test_magnetic_ultracell_slow.py::test_the_windowed_free_problem_at_q10_is_hermitian_and_variational`: `the assembled H is not Hermitian`, 7.608e-07 against 1.0e-08.
+- `tests/regression/test_quantum_metric.py::test_a_metal_is_refused_by_both_routes`: the test asks for `refused on a metal` and the message is `3.0 electrons do not fill a whole number of bands; ...`.
+- `tests/regression/test_response.py::test_chi0_matches_a_finite_difference_for_a_metal`: 1.94e-06 against 1e-06.
+- `tests/regression/test_scf_solvers.py::test_autodiff_jvp_needs_a_warm_start`: 1.88e-05, where the test asks for more than 0.02.
+- `tests/regression/test_shg.py::test_the_refusals_name_second_harmonic_generation_rather_than_the_shift_current`: did not raise `NotImplementedError`.
+- `tests/regression/test_spin_spirals_augmented.py::test_the_spiral_is_its_unfolded_supercell_on_the_laboratory_sphere`: 0.119 against 1e-10.
+- `tests/regression/test_spiral_relaxation.py::test_a_tabulated_augmentation_table_gives_the_stored_gradient`: 0.0031004329770 against a stored 0.0031004342543 with 1e-09.
+- `tests/regression/test_streamed_phonons.py::test_a_partial_matrix_from_a_kept_response_is_its_rows`, the two `unshifted-nosym` cases: `walked` is a `StreamedDisplacements` where the test asks for `None`.
+- `tests/regression/test_transport.py::test_the_atoms_have_to_lie_between_the_two_planes` and `tests/regression/test_ultracell_sts.py::test_the_whole_cell_transmission_is_the_spectrum`: no `UserWarning` with `do not lie between`.
+- `tests/regression/test_ultracell_stm.py::test_a_magnetic_tip_sees_a_spin_density_wave_a_plain_one_does_not`: a magnetization of 4.37e-05 against 1e-05.
+- `tests/unit/test_elk_allelectron.py::test_a_collinear_triplet_is_written_with_its_moment`: 0.905088 against 0.905098 at `rtol = 1e-08`. **The same test fails at master `e22a1c5d` with the same two numbers.**
+- `tests/unit/test_scf_restart.py::test_an_interrupted_fixed_spin_moment_run_costs_the_same_iterations[secant-12]`: -55.57153674172 against -55.57153674850 with 1e-09. The branch touches this file in `89190753` (round two #22).
+
+**The branch causes none of the 18.** The 15 files were run at master `e22a1c5d` on the same partition, in two control jobs: 21742448, cancelled by the user's choice after 1 min 28 s with two files ended (`test_elastic_one_trace.py`, `test_elk_allelectron.py`), and 21742528, picked by the user, with the other 13 files. **The same 18 tests fail at master, and each reads the same number as on the branch to every printed digit** (7.241401825191711e-06, 7.608e-07, 1.936657514603436e-06, 1.880048041255297e-05, 0.11944219297954195, 0.0031004329770212276, 4.3708468316297494e-05, -55.57153674172337, 0.905088, and the same missing warnings, raises and traces). The passed counts of the 15 files are equal at the two commits too. So these are failures of master on the Triton nodes, not of this branch; they are `OPEN.md` Part XXXII item 11, not investigated. What the slow run does not cover: `tests/regression/test_realtime_regimes.py`, which did not finish, and the slow set on this workstation, which was not run. The user's rule of the same day, for the next run: no job or array task under about 30 min on Triton, so the files are grouped before a submission (these arrays had one file per task).
+
+**The fast gate** ran on Triton, twice, since this workstation takes light runs only (`tools/cluster/gate.sbatch` on `batch-csl`, 8 CPUs, 12G, a worktree of a git bundle). Job 21736920 at `6b7bb998`, where the work of 2026-11-20 stopped: **4938 passed, 5 failed, 65 skipped, 1940 deselected** in 1 h 29 min 44 s of pytest (1 h 30 min 56 s of job, peak 5.50 GB). Job 21739219 at `ceedcaf6`, after groups F and G and the record: **4969 passed, 5 failed, 65 skipped, 1940 deselected** in 1 h 20 min 19 s of pytest (1 h 21 min 28 s of job, peak 6.07 GB), so 31 tests more and no new failure. The 5 failures are the same in both jobs and belong to the Triton venv, not to the branch: three of `tests/unit/test_memory_watchdog.py` (no `psutil` there) and two of `tests/unit/test_check_guide.py` (no `yaml` there). Those two files, with `test_result_plots.py` and `test_notebook_conventions.py`, ran on this workstation at `0e48101b`, after the notebook edit: 550 passed in 7.04 s (5.84 s at `ceedcaf6`), and `mkdocs build --strict` exits 0. The commits after `ceedcaf6` (`5f586a2f`, `8234d1c4` and the one that writes this line) touch only two sentences of prose in notebook 40 and its export, `notes/audit-1120/` and this file, so no test was run on them beyond the four files above. The gate now takes two thirds to three quarters of the 2 h limit of `gate.sbatch` (1 h 05 min on 2026-11-18 with 4687 tests).

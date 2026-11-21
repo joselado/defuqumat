@@ -30,6 +30,7 @@ _GRID_EPS = 1.0e-5
 __all__ = ["KPoints", "monkhorst_pack", "irreducible_wedge", "grid_equivalence",
            "grid_stabilizer",
            "expand_to_subgroup", "expand_band_path", "for_spin", "is_reduced",
+           "covers_a_whole_grid",
            "HIGH_SYMMETRY_POINTS", "labelled_path", "resolve_kpoints"]
 
 #: Spin degeneracy factor applied to weights for an unpolarised calculation.
@@ -289,7 +290,8 @@ def expand_to_subgroup(
     """Expand an explicit k-list from the lattice's wedge to the crystal's.
 
     ``irreducible_BZ`` in ``PW/src/irrek.f90``, and it runs for **every** SCF
-    run, an explicit ``K_POINTS`` card included -- QE's comment says why: "input
+    run (every run but ``calculation = 'bands'``, ``setup.f90:621``, which takes
+    its list as written), an explicit ``K_POINTS`` card included -- QE's comment says why: "input
     k-points are assumed to be given in the IBZ of the Bravais lattice, with the
     full point symmetry of the lattice; if some symmetries of the lattice are
     missing in the crystal, irreducible_BZ computes the missing k-points".
@@ -602,6 +604,94 @@ def is_reduced(kpoints: "KPoints") -> bool:
     if weights.size <= 1:
         return False
     return bool(np.ptp(weights) > 1.0e-8 * np.abs(weights).max())
+
+
+def covers_a_whole_grid(kpoints: "KPoints", cell: Cell) -> bool:
+    """Whether ``kpoints`` is a whole Monkhorst-Pack grid: equal weights on every point of one.
+
+    For a list with no grid recorded on it (:attr:`KPoints.grid` is ``None``),
+    which :attr:`KPoints.reduced` cannot speak for. :func:`is_reduced`'s weight
+    spread catches a hand-written wedge with unequal weights and misses one with
+    equal weights, which is what a group acting freely on a shifted grid leaves.
+    This is the positive test instead, in crystal coordinates folded into
+    ``[0, 1)``: each axis holds ``n_i`` values spaced by ``1/n_i``, every one of
+    the ``n_1 n_2 n_3`` combinations is present once, the set holds ``-k`` with
+    every ``k``, and the weights are equal. The ``-k`` test is what a
+    Monkhorst-Pack offset (none, or half a step) guarantees, and it is needed:
+    the four points time reversal keeps of the shifted 2x2x2 mesh of an fcc
+    cell are a 1x2x2 product grid at the offset 1/4, which no mesh has, and
+    pass every other test. A Monkhorst-Pack grid, shifted or not, passes, and
+    so does ``Gamma`` alone. A list that fails is treated as a part of the zone,
+    which is the safe direction: a consumer that needs the whole zone refuses
+    it (audit 2026-11-20 #11). Host-side, on the k-set's own numbers.
+
+    **The comparison is on grid indices, not on the coordinates.** Each axis's
+    values are clustered within :data:`_WHOLE_GRID_TOL` (1e-5 in crystal units,
+    with 0 and 1 one plane), the clusters must be ``1/n_i`` apart, and every
+    coordinate is then snapped to its index on that axis; ``-k`` is snapped the
+    same way. A list printed to 7 decimals in ``tpiba`` units, or held in single
+    precision, is off the grid by about 1e-7, and the first form of this test,
+    which compared exact 1e-6 buckets, refused a whole 9x9x1 hexagonal grid
+    printed that way (audit 2026-11-20b #33).
+    """
+    if is_reduced(kpoints):
+        return False
+    points = np.asarray(kpoints.crystal(cell), dtype=float).reshape(-1, 3)
+    if len(points) == 0:
+        return False
+    tol = _WHOLE_GRID_TOL
+    indices, opposite, counts = [], [], []
+    for axis in range(3):
+        planes = _grid_planes(points[:, axis], tol)
+        if planes is None:
+            return False
+        n, origin = planes
+        here = _snap_to_planes(points[:, axis], n, origin, tol)
+        there = _snap_to_planes(-points[:, axis], n, origin, tol)
+        if here is None or there is None:
+            return False
+        indices.append(here)
+        opposite.append(there)
+        counts.append(n)
+    keys = np.stack(indices, axis=1)
+    rows = {tuple(row) for row in keys.tolist()}
+    if not len(rows) == len(points) == int(np.prod(counts)):
+        return False
+    return all(tuple(row) in rows for row in np.stack(opposite, axis=1).tolist())
+
+
+#: How far, in crystal units, a coordinate of an explicit list may sit from its
+#: grid plane and still be read as on it (:func:`covers_a_whole_grid`). Far
+#: above a 7-decimal print or single precision (about 1e-7), and far below the
+#: spacing of any mesh a calculation uses (``1/n``, with ``n`` in the hundreds).
+_WHOLE_GRID_TOL = 1.0e-5
+
+
+def _grid_planes(values: np.ndarray, tol: float):
+    """``(n, origin)`` if ``values`` lie on ``n`` planes spaced ``1/n`` apart, mod 1, else None.
+
+    The values are folded into ``[-tol, 1 - tol)``, so a coordinate a hair
+    below 1 joins the plane at 0, and sorted; a gap wider than ``tol`` starts a
+    new plane. ``origin`` is the mean of the first plane.
+    """
+    folded = values - np.floor(values)
+    folded = np.sort(np.where(folded >= 1.0 - tol, folded - 1.0, folded))
+    starts = np.concatenate([[0], np.flatnonzero(np.diff(folded) > tol) + 1])
+    planes = np.array([part.mean() for part in np.split(folded, starts[1:])])
+    n = len(planes)
+    gaps = np.diff(np.append(planes, planes[0] + 1.0))
+    if np.any(np.abs(gaps - 1.0 / n) > tol):
+        return None
+    return n, float(planes[0])
+
+
+def _snap_to_planes(values: np.ndarray, n: int, origin: float, tol: float):
+    """Each value's plane index in ``0..n-1``, or None if one lies off every plane."""
+    steps = (values - origin) * n
+    index = np.rint(steps)
+    if np.any(np.abs(steps - index) > tol * n):
+        return None
+    return index.astype(np.int64) % n
 
 
 def for_spin(kpoints: "KPoints", nspin: int) -> "KPoints":

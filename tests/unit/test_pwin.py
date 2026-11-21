@@ -183,6 +183,15 @@ K_POINTS gamma
         ("", "force_symmorphic = .true.", "force_symmorphic"),
         ("", "use_all_frac = .true.", "use_all_frac"),
         ("", "nosym_evc = .true.", "nosym_evc"),
+        # audit 2026-11-20b #6: three more that change the physics and that
+        # nothing read. ``gate`` was refused only behind ``tefield``, while
+        # ``add_gatefield`` runs whenever it is set and adds the block barrier
+        # even at ``tot_charge = 0``.
+        ("trism = .true.", "", "trism"),
+        ("", "nextffield = 1", "nextffield"),
+        ("", "gate = .true.", "gate"),
+        ("", "gate = .true., block = .true., block_1 = 0.1, block_2 = 0.2, "
+             "block_height = 0.1", "gate"),
     ],
 )
 def test_physics_this_code_does_not_have_is_refused_not_ignored(
@@ -208,9 +217,53 @@ def test_the_defaults_of_all_seven_are_silent():
     from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(
-        control="tefield = .false., dipfield = .false.",
-        system="tot_charge = 0.0, assume_isolated = 'none'",
+        control="tefield = .false., dipfield = .false., trism = .false.",
+        system="tot_charge = 0.0, assume_isolated = 'none', nextffield = 0, "
+               "gate = .false.",
     )))
+
+
+# -- cards an input can carry that change the physics (audit 2026-11-20b #5) ---
+
+
+@pytest.mark.parametrize(
+    "card,expected",
+    [
+        # QE's own ``pw_relax/relax-extfor.in``: CO stretched by +-0.2158
+        # Ry/bohr, which ran here with no external force at all.
+        ("ATOMIC_FORCES\n Si 0.21576369 0.0 0.0\n Si -0.21576369 0.0 0.0\n",
+         "ATOMIC_FORCES"),
+        ("CONSTRAINTS\n1\n'distance' 1 2 4.0\n", "CONSTRAINTS"),
+        ("TOTAL_CHARGE\n 0.1\n", "TOTAL_CHARGE"),
+    ],
+)
+def test_a_card_that_changes_the_physics_is_refused_not_ignored(card, expected):
+    """The three were parsed and read by nothing, so a relax ran with no
+    external force and no constraint, and a charged cell ran neutral."""
+    from defuqumat.system.builder import build_system
+
+    text = _MINIMAL.format(control="calculation = 'relax'", system="") + card
+    with pytest.raises(NotImplementedError, match=expected):
+        build_system(parse_pw_input(text))
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        # ``pw.x`` sets ``textfor`` only when a component is nonzero
+        # (``input.f90:1926``), and ``lconstrain`` only for ``nconstr > 0``.
+        "ATOMIC_FORCES\n Si 0.0 0.0 0.0\n Si 0 0 0\n",
+        "CONSTRAINTS\n0\n",
+        "TOTAL_CHARGE\n 0.0\n",
+        # read only for molecular dynamics, which is refused by itself
+        "ATOMIC_VELOCITIES a.u\n Si 0.0 0.0 0.1\n Si 0.0 0.0 -0.1\n",
+    ],
+)
+def test_the_same_cards_at_their_neutral_values_are_silent(card):
+    from defuqumat.system.builder import build_system
+
+    build_system(parse_pw_input(
+        _MINIMAL.format(control="calculation = 'relax'", system="") + card))
 
 
 def test_the_four_symmetry_switches_are_silent_at_their_defaults():
@@ -253,6 +306,52 @@ def test_every_fortran_logical_spelling(token, expected):
     """
     assert parse_pw_input(f"&control\n lberry = {token}\n/\n").get(
         "control", "lberry") is expected
+
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        (".true", True), (".TRUE", True), (".tru.", True), (".tr", True),
+        (".false", False), (".FALSE", False), (".fals", False), (".fa.", False),
+    ],
+)
+def test_a_logical_with_no_closing_period_is_still_the_logical(token, expected):
+    """``.true`` is a logical for gfortran (an optional period, then T or F, then
+    anything), and it stayed the *string* ``'.true'`` here (audit 2026-11-20b
+    #16). ``builder._logical`` then read it as false and ``bool()`` as true.
+    """
+    assert parse_pw_input(f"&control\n lberry = {token}\n/\n").get(
+        "control", "lberry") is expected
+
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [(".02", 0.02), (".5d0", 0.5), ("'.true'", ".true"), ("'.tmp'", ".tmp")],
+)
+def test_a_number_or_a_quoted_string_with_a_period_is_not_a_logical(token, expected):
+    """The other side of the rule above: only a period followed by a part of
+    ``true`` or ``false`` is read as a logical."""
+    assert parse_pw_input(f"&control\n outdir = {token}\n/\n").get(
+        "control", "outdir") == expected
+
+
+def test_nosym_written_without_its_closing_period_switches_symmetry_off():
+    """The end of the #16 path: ``nosym = .true`` symmetrised the run."""
+    from defuqumat.system.builder import build_system
+
+    system = build_system(parse_pw_input(_MINIMAL.format(control="", system="nosym = .true")))
+    assert system.nosym is True
+    system = build_system(parse_pw_input(_MINIMAL.format(control="", system="nosym = .false")))
+    assert system.nosym is False
+
+
+def test_diago_full_acc_written_without_its_closing_period_is_false():
+    """``electrons_defaults`` read the string ``'.false'`` through ``bool()``, as true."""
+    from defuqumat.calculator import electrons_defaults
+
+    for token, expected in ((".false", False), (".true", True), (".false.", False)):
+        pwin = parse_pw_input(f"&electrons\n diago_full_acc = {token}\n/\n")
+        assert electrons_defaults(pwin)["diago_full_acc"] is expected
 
 
 def test_lberry_false_written_bare_does_not_ask_for_a_berry_run():

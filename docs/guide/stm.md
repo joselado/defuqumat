@@ -93,7 +93,9 @@ The keywords of `get_stm` are:
 - **`mode`**: `"constant-height"`, or `"constant-current"` with a set-point
   `current` and a scan range `heights` in bohr. In the second mode
   `image.heights_bohr` is the height of the tip at each point, which is the
-  topograph a microscope records.
+  topograph a microscope records. With `height`, the tip starts on that plane
+  and moves along the lattice vector of `axis`, so the slab has to be below
+  the plane.
 - **`spin`**, **`polarization`**: a magnetic tip, with its moment along a
   direction `(nx, ny, nz)`, or `"up"` and `"down"` for a collinear run. The tip
   then sees $\tfrac12[\rho + P\,\hat{\mathbf n}\cdot\mathbf m]$, so the image of a
@@ -848,10 +850,15 @@ so its size moves by a few per cent with the mesh and its sign does not.
     because such a run has no transverse magnetization, which is not the same as
     a zero one.
 
-    A constant-current scan longer than the period of the cell along the normal
-    gives an error, because there the tip meets the next copy of the surface. A
-    point where the tip never reaches the set-point comes back as `nan`, with a
-    warning that says how many points. At zero bias the image of an insulator is
+    A constant-current scan without `heights` gives an error. The scan has to
+    end in the vacuum, before the next copy of the slab, and the code does not
+    know where the vacuum is. Even half a period is too long for the graphite
+    cell above with the tip at 3.5 bohr, so there is no default. For a tip that
+    starts near the surface, the middle of the vacuum is a good upper end. A
+    scan as long as the period of the cell along the normal, or longer, also
+    gives an error, because there the tip is back on the copy of the plane it
+    started from. A point where the tip never reaches the set-point comes back
+    as `nan`, with a warning that says how many points. At zero bias the image of an insulator is
     zero, because the delta sits in the gap, and the code warns about it, so for
     an insulator you give a `bias`. All four calculations of this page work with
     `K_POINTS gamma`. They agree with an explicit $k = 0$ to 1e-7, which is what
@@ -890,9 +897,10 @@ so its size moves by a few per cent with the mesh and its sign does not.
     the substrate plane is. A symmetry-reduced k-mesh gives an error, because a
     mirror through the slab exchanges the tip and the substrate, and `grid`
     builds the full mesh. The substrate plane is always a lattice plane, set by
-    `exit_height`, while the tip plane may be tilted. A tip or a substrate plane
-    inside an augmentation sphere of an ultrasoft or PAW atom gives an error,
-    and in the vacuum these datasets need nothing extra. A magnetic tip or a
+    `exit_height`, while the tip plane may be tilted. A tip plane, a substrate
+    plane or a matching plane (`match_height`) inside an augmentation sphere of
+    an ultrasoft or PAW atom gives an error, and in the vacuum these datasets
+    need nothing extra. A magnetic tip or a
     magnetic substrate gives an error on a run with no magnetization, and a
     direction across the axis of a collinear run gives an error for both. A spin
     spiral gives an error, because the spectrum samples each state on one
@@ -930,7 +938,9 @@ so its size moves by a few per cent with the mesh and its sign does not.
     orbitals with one weight, which is a Pb apex whose $p_{1/2}$ and $p_{3/2}$
     states carry the same weight per state. With different weights the tip
     states of a Pb apex are not one orbital times one spin, and the code has no
-    such tip. The weights are those
+    such tip. For the same reason `from_upf` gives an error for a fully
+    relativistic file, where two orbitals share one label, such as the
+    $j = 1/2$ and $j = 3/2$ 6P orbitals of Bi. The weights are those
     of Chen's table, which are not normalized in the same way for the five d
     orbitals, so equal weights on the five are not a round tip, while on the
     three p orbitals they are. The STS spectrum, the QPI map, the STM image and

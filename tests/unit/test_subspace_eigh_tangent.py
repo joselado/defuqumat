@@ -147,3 +147,46 @@ def test_a_row_with_every_band_occupied_keeps_the_floor():
     assert float(tangent_width(jnp.full(4, 1e-3))) == 1e-3
     assert float(tangent_width(jnp.array([1e-13, 1e-13, 1e-5]))) == EMPTY_ETHR_FLOOR
     assert float(tangent_width(1e-3)) == pytest.approx(5e-3)
+
+
+def test_a_scalar_ethr_reaches_the_tangent_as_a_row(pseudo_dir, monkeypatch):
+    """Every production solve takes the vector branch of ``tangent_width`` (audit 2026-11-20b #20).
+
+    ``davidson_eigensolver_all`` broadcasts ``ethr`` to ``(nk, nbnd)`` and each
+    k-point is handed its row, so a scalar from the caller -- the Newton
+    residual passes one -- arrives as an ``(nbnd,)`` vector, and the width is
+    ``max(ethr, 1e-5)``, not the scalar branch's ``max(5 ethr, 1e-5)``. The
+    scalar branch is reached only by a direct call to ``davidson_eigensolver``.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.solvers import davidson
+    from defuqumat.system.builder import build_system
+
+    system = build_system(parse_pw_input(
+        "&control\n calculation = 'scf'\n/\n&system\n ibrav = 2, celldm(1) = 10.2, "
+        "nat = 2, ntyp = 1, ecutwfc = 8.0\n/\n&electrons\n/\nATOMIC_SPECIES\n"
+        " Si 28.086 Si.pz-vbc.UPF\nATOMIC_POSITIONS alat\n Si 0.00 0.00 0.00\n"
+        " Si 0.25 0.25 0.25\nK_POINTS automatic\n 1 1 1 0 0 0\n"))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file)
+                    for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    hamiltonians = calculation.hamiltonian(
+        calculation.potential(calculation.starting_density()).v_scf)
+
+    ranks = []
+    original = davidson.tangent_width
+
+    def spy(ethr):
+        ranks.append(jnp.ndim(ethr))
+        return original(ethr)
+
+    monkeypatch.setattr(davidson, "tangent_width", spy)
+    # The spy is read when the solve is traced, so the compiled one is dropped.
+    davidson.davidson_eigensolver_all.clear_cache()
+    try:
+        calculation.diagonalize(hamiltonians, 4, None, 1e-4)
+    finally:
+        davidson.davidson_eigensolver_all.clear_cache()
+    assert ranks and set(ranks) == {1}, ranks

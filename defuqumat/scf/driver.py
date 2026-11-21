@@ -186,6 +186,7 @@ from defuqumat.scf.potential import (
     tau_ddot_vector,
     ns_ddot_vector,
     v_of_rho,
+    warn_about_the_vacuum_hold,
 )
 from defuqumat.scf.residual_split import becsum_residual, residual_bins
 from defuqumat.xc.mgga import thomas_fermi_tau
@@ -201,7 +202,7 @@ from defuqumat.solvers.davidson import (
 from defuqumat.solvers.subspace import rayleigh_ritz
 from defuqumat.system.builder import System
 from defuqumat.system.cell import fold_radius, pair_separation_bound
-from defuqumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints, covers_a_whole_grid, is_reduced
 from defuqumat.system.spiral import spiral_cartesian, spiral_kcart, spiral_kpoints
 from defuqumat.system.symmetry import (
     apply_symmetry_maps,
@@ -1630,8 +1631,9 @@ def gamma_storage_is_consumable(system: System, pseudos) -> bool:
     ``K_POINTS gamma`` halves every plane-wave-sized array -- the
     wavefunctions, ``vkb``, the Davidson subspace -- which on a large cell is
     the difference between a calculation that fits on a card and one that does
-    not. It is consumed for a **norm-conserving** run with **no symmetry**, and
-    substituted away (with a warning) otherwise. Both restrictions are real:
+    not. It is consumed for a **norm-conserving** run with **no symmetry**, no
+    Hubbard term, and neither a spinor nor a spiral, and substituted away (with a
+    warning) otherwise. Each restriction is real:
 
     * **Ultrasoft and PAW.** ``addusdens`` and ``newd`` need their own
       ``fact = 2`` over the augmentation charge, and ``Q_ij(G)`` is tabulated
@@ -1651,6 +1653,10 @@ def gamma_storage_is_consumable(system: System, pseudos) -> bool:
       to the wrong ground state. It is the only one of these that is wrong
       before the run finishes rather than after, which is why it is a
       substitution rather than something left to a consumer to notice.
+    * **A spinor or a spiral.** The two components of a spinor are not related
+      by ``c(-G) = conj(c(G))`` unless the state can be chosen real, which
+      spin-orbit coupling stops, and a spiral's components live on two
+      different spheres.
 
     A run wanting the storage on a symmetric crystal sets ``nosym = .true.``,
     which is what the gain is traded against and is usually worth it: the
@@ -1674,14 +1680,15 @@ def _without_gamma_storage(system: System) -> System:
     """Turn ``K_POINTS gamma`` into an explicit single k-point at the origin.
 
     ``ggen`` keeps only half the G sphere when the calculation is at k = 0,
-    because a real wavefunction has ``c(-G) = conj(c(G))``. That storage is
-    generated here (``basis/gvectors.py``) but it is not *consumed* anywhere:
-    ``vloc_psi`` would need QE's ``vloc_psi_gamma`` packing, the eigensolver
-    QE's real ``regterg`` overlaps, ``calbec``/``addusdens``/``newd`` their
-    ``fact = 2`` doubling, and the symmetry maps a way to follow a rotation that
-    leaves the stored half. None of that exists, so running a gamma-only basis
-    through the SCF would be silently wrong (where it does not simply fail in
-    ``symmetry_maps``).
+    because a real wavefunction has ``c(-G) = conj(c(G))``. Since P68 that
+    storage is consumed where :func:`gamma_storage_is_consumable` allows it, a
+    norm-conserving run with ``nosym``, no Hubbard term and neither a spinor nor
+    a spiral. Everywhere else the pieces it would need do not exist:
+    ``addusdens``/``newd`` their ``fact = 2`` doubling, the Hubbard projections
+    the ``2 Re(sum) - G0`` rule, a spinor a real state, a spiral one sphere, and
+    the symmetry maps a way to follow a rotation that leaves the stored half. So
+    such a run takes this substitution instead of being silently wrong (or
+    failing in ``symmetry_maps``).
 
     The substitution below is exact rather than approximate: the same cell at
     the same cutoffs has the same FFT dimensions and the same physics, and the
@@ -1699,8 +1706,9 @@ def _without_gamma_storage(system: System) -> System:
     warnings.warn(
         "K_POINTS gamma asks for the half-sphere storage of the gamma-point "
         "trick, which this run cannot consume -- it is implemented for a "
-        "norm-conserving calculation with no Hubbard U and nosym = .true., and "
-        "this one is ultrasoft/PAW, carries a U, or uses symmetry (see "
+        "norm-conserving calculation with no Hubbard U, no spinor or spiral "
+        "and nosym = .true., and this one is ultrasoft/PAW, carries a U, is a "
+        "spinor or a spiral, or uses symmetry (see "
         "gamma_storage_is_consumable). "
         "Running at an explicit k = 0 with the full G sphere instead: the "
         "result is the same and the cost is twice the plane waves",
@@ -1730,7 +1738,10 @@ def _meta_c(potential, is_meta: bool = True):
     without reading ``c``: ``v_of_rho`` sets it to exactly ``0.0`` outside its
     meta branch, so the answer is the same, and the read it saves is a blocking
     fetch of a device scalar at the top of every SCF iteration, which waited for
-    the whole potential before the Hamiltonian could be dispatched.
+    the whole potential before the Hamiltonian could be dispatched. The
+    one-centre call sites pass ``is_meta and is_paw``, since only the PAW
+    spheres use ``c`` and every TB09, BJ06 or local mBJ run without PAW paid
+    the same wait for nothing (audit 2026-11-20 #24).
     """
     if not is_meta:
         return None
@@ -2992,7 +3003,7 @@ class Calculation:
         # tuple, which compares and hashes on the host; what crosses a ``jit``
         # boundary is the array :meth:`_axis_argument` builds from it.
         axis = (
-            fixed_quantization_axis(system.local_moments, system.b_field)
+            self._compute_ux()
             if self.nspin_mag == 4 and not self.spiral else None
         )
         self.quantization_axis = None if axis is None else tuple(float(v) for v in axis)
@@ -3185,7 +3196,9 @@ class Calculation:
         falling with ``conv_thr`` as the SCF's own error does down to the
         precision's. A constrained moment, an applied field and a Berry-phase
         field are refused by name: the constrained H atom landed 1.2e-4 Ry off
-        against 2.5e-5 for a double run at the same ``conv_thr``. Three things had to
+        against 2.5e-5 for a double run at the same ``conv_thr``. A saw-tooth
+        field (``tefield``, with or without ``dipfield``) is refused beside them,
+        because it was never measured (audit 2026-11-20b #34). Three things had to
         change: ``H|psi>`` of a spinor and of DFT+U came back complex128, and
         the Davidson work array refused it, until the spinor's kinetic energy
         and potential and the Hubbard projectors (:meth:`band_wfcU`) were cast
@@ -3226,6 +3239,10 @@ class Calculation:
             fields.append("an applied magnetic field")
         if getattr(self, "berry_field", None) is not None:
             fields.append("a Berry-phase electric field (lelfield)")
+        if getattr(self, "sawtooth", None) is not None:
+            # Not measured at all (audit 2026-11-20b #34): I119 has no number for
+            # it, and it sat unrefused beside the fields that were measured.
+            fields.append("a saw-tooth electric field (tefield)")
         if fields:
             # Measured on h-atom-noncolin.in at angle1 = 60 (the I119 review):
             # 'atomic' at lambda = 0.5 lands 1.2e-4 Ry off against 2.5e-5 for a
@@ -3234,7 +3251,8 @@ class Calculation:
                 f"band_precision = {self.band_precision.name!r} is not checked "
                 f"with {', '.join(fields)}: a constraint or a field measured "
                 "an order of magnitude further from its double state than the "
-                "SCF's own error. Run it with band_precision='double'"
+                "SCF's own error, and the saw-tooth was not measured. Run it "
+                "with band_precision='double'"
             )
         regimes = []
         if any(getattr(p, "is_ultrasoft", False) for p in self.pseudos):
@@ -3349,9 +3367,10 @@ class Calculation:
             if unmeasured:
                 raise NotImplementedError(
                     f"the local mBJ (input_dft = 'lmbj') with {unmeasured[0]} is not "
-                    "implemented: it is measured at nspin = 1 and 2 only, and the "
-                    "spinor, spiral and nosource branches have no number with c a "
-                    "field. input_dft = 'tb09' runs there"
+                    "implemented: it is measured at nspin = 1 and on the "
+                    "unpolarized nspin = 2 identity only, and the spinor, spiral "
+                    "and nosource branches have no number with c a field. "
+                    "input_dft = 'tb09' runs there"
                 )
         if self.functional.is_local_meta and any(p.is_paw for p in self.pseudos):
             # The one-centre terms take one Tran-Blaha c (``Potential.meta_c``),
@@ -3436,10 +3455,33 @@ class Calculation:
             jnp.asarray(row), jnp.asarray(column),
             jnp.asarray(block_row), jnp.asarray(block_column), setup.nwfcU,
         )
+        # A nonmagnetic spinor ``ns`` summed on a k-set reduced with time
+        # reversal is averaged with its Kramers partner as well (audit
+        # 2026-11-20 #14, a departure from ``new_ns_nc``; see
+        # :class:`~defuqumat.hubbard.occupations.NsSymmetry`). Not for a
+        # magnetic run, ``noinv``, or a fixed tensor moment, which may ask for
+        # a time-reversal-odd moment on purpose. The k-set is reduced when the
+        # automatic grid says so, and an explicit list is read as reduced
+        # unless it is a whole grid, since ``irreducible_BZ`` takes it with
+        # time reversal on (audit 2026-11-20b #10). On a whole grid the
+        # partner changes ``ns`` only at round-off, so a wrong "reduced" costs
+        # nothing.
+        kset = self.system.kpoints
+        halved = is_reduced(kset) or (
+            kset.grid is None and not covers_a_whole_grid(kset, self.system.cell))
+        kramers = bool(
+            setup.noncolin
+            and not self.system.domag
+            and not self.system.noinv
+            and setup.constraints is None
+            and not np.any(np.asarray(self.symmetries.t_rev_array()) != 0)
+            and halved
+        )
         self.hubbard_symmetry = (
             build_ns_symmetry(
-                setup, self.system.cell, self.system.structure, self.symmetries
-            ) if use_symmetry else None
+                setup, self.system.cell, self.system.structure,
+                self.symmetries if use_symmetry else None, kramers=kramers,
+            ) if use_symmetry or kramers else None
         )
         self.wfcU = self._build_hubbard_projectors()
 
@@ -4455,7 +4497,7 @@ class Calculation:
         moved.system = system
         # The constructor's three readings of the texture, in its words.
         axis = (
-            fixed_quantization_axis(system.local_moments, system.b_field)
+            moved._compute_ux()
             if self.nspin_mag == 4 and not self.spiral else None
         )
         moved.quantization_axis = None if axis is None else tuple(float(v) for v in axis)
@@ -4940,6 +4982,13 @@ class Calculation:
             moved.projectors = moved.projector_core.at_positions(
                 self.system.structure.positions, qq=self.projectors.qq
             )
+            # A DFT+U spiral's ``wfcU`` is built on the two shifted spheres
+            # (:meth:`_build_hubbard_projectors`), so the occupation matrix it
+            # measures moves with ``q`` exactly as ``vkb`` does, and the
+            # Hubbard energy's part of ``dE/dq`` comes through here (audit
+            # 2026-11-20b #1).
+            if self.hubbard is not None:
+                moved.wfcU = moved._build_hubbard_projectors(kcart)
             return moved
 
         # ``spiral_q`` is a *static* field -- it decides array lengths -- so it
@@ -5004,6 +5053,13 @@ class Calculation:
             system.structure.positions, qq=self.projectors.qq,
             lazy=self.projector_storage == "rebuild", rows=self.projector_rows,
         )
+        # ``wfcU`` carries the two spheres, so a new ``q`` needs new Hubbard
+        # projectors, as a new k-list does in :meth:`at_kpoints`. Kept, the old
+        # ones are indexed against the old spheres' plane waves: a shape error
+        # when the padded width moves, and a silently wrong ``ns`` when it does
+        # not (audit 2026-11-20b #2).
+        if self.hubbard is not None:
+            moved.wfcU = moved._build_hubbard_projectors()
         return moved
 
     @property
@@ -5623,6 +5679,31 @@ class Calculation:
             tensors, self.system.cell, self.symmetries, mapping,
         ))
 
+    def symmetrize_atom_vector(self, vectors, atoms=None) -> np.ndarray:
+        """``symvector`` on ``(len(atoms), 3)``: one cartesian vector per displaced atom.
+
+        What a metal's Gamma phonon needs it for is ``sym_def``
+        (``LR_Modules/efermi_shift.f90``): the Fermi level's shift per
+        displacement, ``def_{a,i} = d e_F / d u_{a,i}``, is the derivative of a
+        scalar by a displacement and so transforms as a force does. On a wedge
+        the raw shift is a wedge sum and only its average over the group is the
+        whole zone's (AUDIT-2026-11-20b #12). Guarded on :attr:`use_symmetry`,
+        and ``atoms`` as :meth:`symmetrize_atom_pair_tensor` takes it.
+        """
+        from defuqumat.system.symmetry import (
+            atom_mapping, subset_atom_mapping, symmetrize_vector,
+        )
+
+        vectors = np.asarray(vectors, dtype=float)
+        if not self.use_symmetry:
+            return vectors
+        mapping = atom_mapping(self.system.cell, self.system.structure, self.symmetries)
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
+        return np.asarray(symmetrize_vector(
+            vectors, self.system.cell, self.symmetries, mapping,
+        ))
+
     def symmetrize_cartesian_tensor(self, tensor) -> np.ndarray:
         """``symmatrix3`` and its rank-4 sibling: a tensor of any rank.
 
@@ -6060,8 +6141,19 @@ class Calculation:
         return self.finish_kinetic_energy_density(tau, symmetrize)
 
     def finish_kinetic_energy_density(self, tau, symmetrize: bool = True):
-        """The dense-grid lift and the ``sym_rho`` of :meth:`kinetic_energy_density`."""
-        tau = to_dense(tau, self.basis.smooth, self.basis.dense)
+        """The dense-grid lift and the ``sym_rho`` of :meth:`kinetic_energy_density`.
+
+        Lifted as the density is (:meth:`lift_density`): a spin spiral's
+        transverse ``tau'_+`` carries the same ``e^{-i q.r}`` as ``m'_+`` and is
+        band-limited to the displaced smooth sphere ``{G : |G - q| < G_s}``, so
+        it goes up through :attr:`spiral_smooth`. Through the resident sphere
+        the shell the two do not share was dropped: on the TB09 hydrogen chain
+        at ``ecutrho = 8 ecutwfc`` that is 8.7e-10 of ``|tau'_+|^2`` and 2.4e-6
+        of a pair of 0.082 pointwise, where the density's shell is 1.2e-12
+        (audit 2026-11-20c #25). Without a separate smooth grid both lifts are
+        the identity.
+        """
+        tau = self.lift_density(tau)
         return self.symmetrize(tau) if symmetrize else tau
 
     def hamiltonian(self, v_scf: jnp.ndarray, ddd_paw=None, hubbard=None) -> tuple:
@@ -6340,8 +6432,8 @@ class Calculation:
         """``starting_magnetization`` per species, in QE's units, padded to ``ntyp``.
 
         **A value at or above 1 is read as Bohr magnetons and divided by the
-        valence charge**, which is `input.f90:1448-1449` and is not optional if
-        the same input file is to mean the same thing in both codes:
+        valence charge**, which is `input.f90:1482-1483` (QE 7.5) and is not
+        optional if the same input file is to mean the same thing in both codes:
 
             IF (ANY(ABS(starting_magnetization(1:nsp)) >= 1)) &
                  starting_magnetization = starting_magnetization / zv
@@ -6353,7 +6445,7 @@ class Calculation:
         ``noncolin`` block and outside the ``constrained_magnetization``
         ``SELECT``, so it is unconditional.
 
-        The clamp at `:1476-1480` is **not** unconditional -- QE applies it
+        The clamp at `:1510-1514` is **not** unconditional -- QE applies it
         inside ``CASE('none')`` -- and it is what stops a channel density going
         negative: without it ``starting_magnetization = 2`` splits an oxygen
         atom into 9 up and **-3 down** electrons, which is not a density.
@@ -6361,33 +6453,34 @@ class Calculation:
         This is the *seeding* number only. ``constraint_targets`` is built from
         ``system.starting_magnetization`` directly and is deliberately left
         alone: ``get_locals`` returns Bohr magnetons and a constraint aims at
-        exactly the number the user wrote.
+        exactly the number the user wrote. That is a departure from ``pw.x``,
+        which divides before it builds ``mcons`` (``input.f90:1540-1549``), so
+        under ``'atomic'`` with a value at or above 1 the two codes aim at
+        targets a factor ``zv`` apart, and the warning below names it.
         """
-        ntyp = self.system.structure.ntyp
-        values = np.zeros(ntyp)
-        given = np.asarray(self.system.starting_magnetization, dtype=float)
-        values[: given.size] = given[:ntyp]
-        if np.any(np.abs(values) >= 1.0):
-            valence = np.array(
-                [float(self.pseudos[t].z_valence) for t in range(ntyp)]
-            )
-            divided = values / valence
-            warnings.warn(
-                f"starting_magnetization {list(np.round(values, 6))} has an entry "
-                f"at or above 1, so pw.x reads the whole set as Bohr magnetons and "
-                f"divides every species by its valence charge "
-                f"({list(valence)}), giving {list(np.round(divided, 6))} as the "
-                f"fraction of the valence charge each atom is polarised by "
-                f"(input.f90:1448). This run does the same. If you meant a "
-                f"fraction, write a value below 1",
-                stacklevel=2,
-            )
-            values = divided
-        if self.system.constrained_magnetization == "none":
-            # ``input.f90:1476-1480``, inside ``CASE('none')`` exactly as here.
-            # A magnitude above 1 would otherwise seed a negative channel.
-            values = np.clip(values, -1.0, 1.0)
-        return values
+        return _starting_magnetization(self.system, self.pseudos, warn=True)
+
+    def _compute_ux(self):
+        """``compute_ux`` on this system: :func:`~defuqumat.scf.potential.fixed_quantization_axis` of ``m_loc``.
+
+        ``m_loc`` as ``setup.f90`` builds it for ``compute_ux``: each species'
+        ``starting_magnetization`` in ``pw.x``'s units, after the ``zv``
+        division and the clamp (:attr:`starting_magnetization`, whose warning is
+        about the starting guess and is not repeated here), times its direction.
+        ``compute_ux``'s parallel test is on these lengths, so the raw input
+        values of :attr:`System.local_moments` would not do once any species is
+        written in Bohr magnetons (AUDIT-2026-11-20b #4). A ``STARTING_MOMENTS``
+        card is handed over as it is, with ``card`` set. ``B_field`` is read
+        when no atom has a moment, as the function says.
+        """
+        system = self.system
+        if len(getattr(system, "starting_moments", ())):
+            return fixed_quantization_axis(system.local_moments, system.b_field,
+                                           card=True)
+        types = np.asarray(system.structure.types, dtype=int)
+        magnitudes = _starting_magnetization(system, self.pseudos, warn=False)
+        moments = magnitudes[types, None] * self.magnetization_directions[types]
+        return fixed_quantization_axis(moments, system.b_field)
 
     @property
     def magnetization_directions(self) -> np.ndarray:
@@ -7673,6 +7766,49 @@ def _warn_if_the_hubbard_moment_moved(start: float | None, end: float | None,
     return True
 
 
+def _starting_magnetization(system, pseudos, warn: bool = True) -> np.ndarray:
+    """:attr:`Calculation.starting_magnetization` of ``system`` and ``pseudos``.
+
+    The property's docstring says what it is. ``warn`` is off for a reader that
+    is not the starting guess (:meth:`Calculation._compute_ux`), so the warning
+    about the division is said once, by the guess.
+    """
+    ntyp = system.structure.ntyp
+    values = np.zeros(ntyp)
+    given = np.asarray(system.starting_magnetization, dtype=float)
+    values[: given.size] = given[:ntyp]
+    if np.any(np.abs(values) >= 1.0):
+        valence = np.array(
+            [float(pseudos[t].z_valence) for t in range(ntyp)]
+        )
+        divided = values / valence
+        # The 'atomic' target stays undivided (the property's docstring), so the
+        # sentence that says this run does the same must not cover it.
+        target = (
+            " The 'atomic' constraint target is the exception: it is the "
+            "number written, in Bohr magnetons, where pw.x aims at the "
+            "divided value, a factor of the valence charge smaller."
+            if system.constrained_magnetization == "atomic" else ""
+        )
+        if warn:
+            warnings.warn(
+                f"starting_magnetization {np.round(values, 6).tolist()} has an "
+                f"entry at or above 1, so pw.x reads the whole set as Bohr "
+                f"magnetons and divides every species by its valence charge "
+                f"({valence.tolist()}), giving {np.round(divided, 6).tolist()} as the "
+                f"fraction of the valence charge each atom is polarised by "
+                f"(input.f90:1482). This run does the same for the starting "
+                f"guess.{target} If you meant a fraction, write a value below 1",
+                stacklevel=3,
+            )
+        values = divided
+    if system.constrained_magnetization == "none":
+        # ``input.f90:1510-1514``, inside ``CASE('none')`` exactly as here.
+        # A magnitude above 1 would otherwise seed a negative channel.
+        values = np.clip(values, -1.0, 1.0)
+    return values
+
+
 def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
     """What ``rotate_moments`` cannot turn, from the assembled calculation.
 
@@ -7687,6 +7823,25 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "eigensolver's noise, which a step divided by a vanishing curvature "
             "would turn into motion; and a spiral keeps its transverse pair in "
             "the frame that turns with q"
+        )
+    # **A meta-GGA's ``tau`` is not turned** (AUDIT-2026-11-20b #R2-extra). At
+    # ``nspin_mag = 4`` it is carried on the Pauli basis, ``(tau_0, tau_vec)``
+    # (:func:`~defuqumat.scf.density.spinor_kinetic_energy_density`), and the
+    # Route C turn rotates the density, ``becsum``, ``ns`` and the mixer's
+    # history but packs ``tau`` last and leaves it, in the state and in the
+    # history alike. The next potential then projects an unturned ``tau_vec``
+    # on the turned ``m-hat`` (:func:`~defuqumat.scf.potential._noncollinear_meta_exchange`).
+    # Turning it needs ``tau_vec`` rotated as ``m`` is, in ``tau_state`` and
+    # in the packed history, and on PAW its one-centre share checked; none of
+    # it is written.
+    functional = getattr(calculation, "functional", None)
+    if functional is not None and functional.is_meta:
+        raise NotImplementedError(
+            f"rotate_moments with a meta-GGA ({functional.name}): the "
+            "kinetic energy density tau of a spinor run has a vector part, "
+            "which turns with the moments, and the step does not turn it, in "
+            "the input or in the mixer's history; a meta-GGA runs at a fixed "
+            "orientation"
         )
     # **A Hubbard U is turned with the step** (I112): ``ns`` turns as
     # ``conj(U) N U^T`` in its spin indices (:func:`~defuqumat.scf.orientation.rotate_ns`)
@@ -9248,6 +9403,28 @@ def run_scf(
         )
     solver_result = None
     solved_tau = None
+    if (get_scf_solver(scf_solver) is not None and calculation.is_hubbard
+            and calculation.hubbard.starting_ns
+            and starting_density is None and starting_ns is None):
+        # The loop's ``ns_adj`` gate below, met by the hand-over iteration: a
+        # residual solver leaves ``starting_density`` and ``starting_ns`` as
+        # they were, so its first loop iteration is iteration 1 of a fresh run.
+        # The requested eigenvalues were then imposed on the *converged* ``ns``
+        # and the run reported convergence with it: on ni-u-unstable.in with
+        # starting_ns_eigenvalue(5,2,1) = 0.5 the total moved by -2.76e-2 Ry and
+        # ``SCFResult.ns`` was not the states' occupation matrix
+        # (audit 2026-11-20c #3). ``pw.x`` has no residual solver to compare with.
+        raise NotImplementedError(
+            "starting_ns_eigenvalue with a residual SCF solver "
+            f"(scf_solver={scf_solver!r}) is not implemented: pw.x applies it "
+            "once, to the occupation matrix of the first iteration of the "
+            "mixing loop (ns_adj in electrons_scf), and a residual solver has "
+            "no such iteration, so the request would be ignored during the "
+            "solve and imposed on the converged matrix afterwards. Use "
+            "scf_solver='mixing', or converge a mixing run with it and pass "
+            "that result to the residual solver as starting_from=, or give the "
+            "occupation matrix you want as starting_ns="
+        )
     if get_scf_solver(scf_solver) is not None:
         (
             rho, becsum_state, ns_state, solved_tau, wavefunctions, solver_result
@@ -9272,11 +9449,12 @@ def run_scf(
 
     # ``potinit.f90``'s Thomas-Fermi guess. The first iteration has no states to
     # build ``tau`` from and the meta-GGA potential cannot be evaluated without
-    # one; from the second iteration on it comes from the states. It is **not
-    # mixed** -- ``mix_rho.f90`` does not touch ``kin_r`` -- so what the
-    # potential sees at iteration ``i`` is the previous iteration's output
-    # ``tau`` against the *mixed* density, which is QE's pairing and is the
-    # reason a meta-GGA SCF converges differently from a GGA one.
+    # one. From the second iteration on ``tau`` comes from the states and is
+    # **mixed with the density**, as ``mix_type``'s ``kin_g`` is in ``pw.x``
+    # (:func:`_mix`, ``scf_mod.f90:320-326``), so the guess is the input
+    # ``tau`` of the first mix, and the potential at iteration ``i`` sees the
+    # mixed ``tau`` beside the mixed density. Until 2026-09-20 the output
+    # ``tau`` replaced the input instead, on a reading of ``mix_rho.f90`` alone.
     tau_state = None
     if calculation.functional.is_meta:
         # In order of how much is known about ``tau``: a residual solver has
@@ -9447,8 +9625,12 @@ def run_scf(
                       f"precision at ethr = {ethr:.2e}")
 
         potential = calculation.potential(rho, field_scale, field, tau=tau_state)
+        # Only the PAW spheres take ``c``: without them ``onecenter`` returns
+        # before reading it, and the read would wait for the whole potential
+        # before the Hamiltonian is dispatched (audit 2026-11-20 #24).
         epaw, ddd_paw = calculation.onecenter(
-            becsum_state, _meta_c(potential, calculation.functional.is_meta))
+            becsum_state,
+            _meta_c(potential, calculation.functional.is_meta and calculation.is_paw))
         hubbard_terms = v_ns = None
         eth = 0.0
         if calculation.is_hubbard:
@@ -9973,7 +10155,8 @@ def run_scf(
             # *not* refreshed: ``deband`` below pairs it with the output becsum
             # exactly as ``delta_e`` does, which runs before QE recomputes it.
             epaw, _ = calculation.onecenter(
-                becsum_out, _meta_c(potential, calculation.functional.is_meta))
+                becsum_out,
+                _meta_c(potential, calculation.functional.is_meta and calculation.is_paw))
             ehart, etxc, epaw_value = jax.device_get((
                 potential.ehart, potential.etxc,
                 epaw if calculation.is_paw else None))
@@ -10425,8 +10608,10 @@ def run_scf(
                 # Everything carried into the next iteration turns together:
                 # the input density, ``becsum``, the mixer's history (whose Gram
                 # matrix a common rotation leaves alone) and the states the next
-                # diagonalisation starts from. ``tau`` is a scalar and needs no
-                # turn. The static GGA axis stays where it is: for a collinear
+                # diagonalisation starts from. ``tau`` is not turned: at
+                # ``nspin_mag = 4`` it has a vector part, so a meta-GGA is
+                # refused by :func:`_refuse_rotating_moments` (AUDIT-2026-11-20b
+                # #R2-extra). The static GGA axis stays where it is: for a collinear
                 # texture ``sign(m . u)`` is right for any axis not perpendicular
                 # to the moment (``notes/ORIENTATION-NEXT.md`` Route C).
                 turn = rotation_matrix(step)
@@ -10521,7 +10706,14 @@ def run_scf(
                 # On PAW the shift is measured on the current states and is
                 # exact for the newest entry only. Dropping the history instead
                 # was measured and is worse (PAW nickel: ``dr2`` swinging up to
-                # 5e-3 after each reset, against 2e-4 turning it).
+                # 5e-3 after each reset, against 2e-4 turning it). That was on
+                # the flat fit. Under the default ``rho_ddot`` fit (P146) the
+                # mixer holds fit vectors, and ``rotate_history`` drops the
+                # whole history at every turn (AUDIT-2026-11-20b #3). A patch
+                # that turns the fit vectors instead is measured and held: on
+                # the oblique cobalt it moves the iterations by -11 or +7
+                # depending on the arithmetic order, and it would move I78,
+                # I112 and I113.
                 mixer.rotate_history(
                     turn_packed,
                     lambda vector: turn_packed(vector, shifted=False),
@@ -10752,6 +10944,13 @@ def run_scf(
         warn_about_a_cut_shell(levels["cut_gap"], ethr,
                                occupied_counts(calculation), int(nbnd),
                                degeneracy_tol=degeneracy_tol)
+
+    if calculation.functional.is_local_meta:
+        # The faces of the vacuum hold are found inside the jit and nothing
+        # there can warn; one host read of the density here says whether
+        # separate pieces of the shell shared one tail value (audit 2026-11-20
+        # #9 and #10).
+        warn_about_the_vacuum_hold(rho, calculation.rho_core)
 
     if rotate_moments and calculation.is_hubbard and moment is not None:
         _warn_if_the_hubbard_moment_moved(

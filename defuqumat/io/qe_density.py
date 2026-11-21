@@ -15,12 +15,20 @@ each for ``(gamma_only, ngm_g, nspin)``, the three reciprocal vectors
 ``bg * tpiba`` in 1/bohr, the Miller indices ``(3, ngm_g)``, and then one
 ``complex128[ngm_g]`` record per component. ``charge-density.hdf5`` (a QE built
 with HDF5) carries the same arrays as attributes and datasets; it is read, never
-written. The coefficients are those of ``rho(r) = sum_G rho(G) exp(iGr)`` in
+written. **So a written folder restarts only a ``pw.x`` built without HDF5**:
+with ``__HDF5`` defined, ``potinit`` checks only for ``charge-density.hdf5``
+(``potinit.f90:80-84``), and without it prints "Cannot read rho : file not
+found" and starts from a superposition of atoms (``:144-153``), with no error
+(audit 2026-11-20 #31).
+
+The coefficients are those of ``rho(r) = sum_G rho(G) exp(iGr)`` in
 e/bohr^3, so ``rho(G = 0) * omega`` is the electron count. ``read_rhog``
 scatters the coefficients in the order they are stored and reads the Miller
 indices only when the ``gamma_only`` flags differ, so a written file lists
 them in ``pw.x``'s order, and ``write_rhog`` here reproduces ``pw.x``'s own
-files byte for byte.
+files byte for byte. That order is the global one, which a ``pw.x`` run with
+``memory = 'small'`` on more than one FFT rank does not use (see
+:mod:`defuqumat.io.qe_gvectors`).
 
 **The spin layout is not defuqumat's in one case.** Since QE 6.4 ``rho%of_g``
 is ``(n, m_z)`` for ``nspin = 2`` and ``(n, m_x, m_y, m_z)`` for ``nspin = 4``,
@@ -144,11 +152,28 @@ def _floats(element) -> np.ndarray:
 
 
 def _read_list_directed(text: str) -> np.ndarray:
-    """A list-directed Fortran file of reals, or of ``(re,im)`` complex pairs."""
+    """A list-directed Fortran file of reals, or of ``(re,im)`` complex pairs.
+
+    A list-directed ``WRITE`` may give a run of equal values as ``r*c``, for
+    example ``16*0.0`` or ``2*(0.0,0.0)``, and ``paw.txt`` and ``occup.txt``
+    are full of exact zeros. gfortran does not write that form; it is expanded
+    here so a file from a compiler that does is read too (audit 2026-11-20
+    #48). That such a ``pw.x`` file reads right was not checked: there is no
+    such compiler on this machine.
+    """
+    import re
+
+    text = text.replace("D", "E").replace("d", "e")
     if "(" not in text:
-        return np.array(text.replace("D", "E").replace("d", "e").split(), dtype=float)
-    pairs = text.replace("D", "E").replace("d", "e").replace(")", " ").split("(")[1:]
-    values = [complex(*map(float, pair.split(",")[:2])) for pair in pairs]
+        values = []
+        for token in text.replace(",", " ").split():
+            count, star, value = token.rpartition("*")
+            values.extend([float(value)] * (int(count) if star else 1))
+        return np.array(values, dtype=float)
+    values = []
+    for count, pair in re.findall(r"(?:(\d+)\s*\*\s*)?\(([^)]*)\)", text):
+        value = complex(*map(float, pair.split(",")[:2]))
+        values.extend([value] * (int(count) if count else 1))
     return np.array(values, dtype=complex)
 
 
@@ -238,7 +263,7 @@ def read_qe_save(directory) -> QESave:
 
     becsum = None
     if (directory / "paw.txt").exists():
-        becsum = np.array((directory / "paw.txt").read_text().split(), dtype=float)
+        becsum = _read_list_directed((directory / "paw.txt").read_text())
     occupations = None
     if (directory / "occup.txt").exists():
         occupations = _read_list_directed((directory / "occup.txt").read_text())
@@ -560,7 +585,10 @@ def write_rhog(path, b, miller, rho_g, gamma_only: bool) -> Path:
         raise NotImplementedError(
             "writing charge-density.hdf5 is not implemented: the pw.x this was "
             "validated against has no HDF5, so a file in that form could not "
-            "be checked; write the .dat form, which every pw.x reads"
+            "be checked; write the .dat form, and restart it with a pw.x built "
+            "without HDF5 -- a pw.x built with HDF5 looks only for "
+            "charge-density.hdf5, prints 'Cannot read rho : file not found' and "
+            "starts from atomic charges"
         )
     miller = np.asarray(miller, dtype=np.int32)
     rho_g = np.asarray(rho_g, dtype=np.complex128)
@@ -672,7 +700,10 @@ def _warn_another_functional(calculation) -> None:
     As atom with spin-orbit coupling in 3 from 1e-8 and in 1 from 1.3e-11
     (``pw.x`` 7.5), while O2 without it restarts alike under both. TB09:
     ``si2-tb09`` in 7 and ``si2-tb09-lsda`` in 13, because ``pw.x``'s ``tb09``
-    calls libxc with a zero Laplacian and ``c = 1`` (P30).
+    calls libxc with a zero Laplacian and ``c = 1`` (P30). A spin-orbit run
+    at ``soc_scale != 1`` (``System.with_soc_scale``) has no ``pw.x``
+    counterpart at all, since ``lspinorb`` takes the whole coupling; that
+    restart was not run.
     """
     import warnings
 
@@ -685,6 +716,20 @@ def _warn_another_functional(calculation) -> None:
             "density (15 iterations against 1 on Fe with DFT+U, 3 against 1 on "
             "an As atom). Converge under noncollinear_gga = 'kubler' for a "
             "state pw.x takes as its own.",
+            stacklevel=3,
+        )
+    system = getattr(calculation, "system", None)
+    soc_scale = float(getattr(system, "soc_scale", 1.0))
+    if getattr(system, "lspinorb", False) and soc_scale != 1.0:
+        # pw.x has no soc_scale: an lspinorb run takes the whole coupling, and
+        # the reduced becsum of soc_scale = 0 is not add_becsum_so's (audit
+        # 2026-11-20 #41). Not measured against pw.x.
+        warnings.warn(
+            f"this state was converged at soc_scale = {soc_scale:g}, and pw.x has "
+            "no such switch: a pw.x run with lspinorb takes the whole spin-orbit "
+            "coupling. pw.x reads the file, but as a start for another "
+            "Hamiltonian, and converges to another state. Write the state of a "
+            "run at soc_scale = 1 for a state pw.x takes as its own.",
             stacklevel=3,
         )
     name = str(getattr(calculation.functional, "meta", "") or "").upper()
@@ -721,6 +766,12 @@ def write_qe_save(directory, result, calculation, *, gamma_only: bool | None = N
     Refused: a spin spiral (``pw.x`` has none), and a state ``pw.x`` cannot
     hold in ``occup.txt`` (a background Hubbard manifold or a ``Hubbard_V``,
     which defuqumat does not have either).
+
+    Not detectable here, and so not refused: the folder is for a ``pw.x``
+    built **without** HDF5, which starts from atoms when it finds no
+    ``charge-density.hdf5``, and for a run **without** ``memory = 'small'``
+    on more than one FFT rank, which reads the coefficients in another order
+    (:mod:`defuqumat.io.qe_gvectors`). Neither says anything when it happens.
     """
     from defuqumat.io.qe_gvectors import qe_gvector_order
 

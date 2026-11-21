@@ -225,6 +225,43 @@ def test_a_moving_overlap_strain_response_matches_a_finite_difference(case, comp
     assert float(jnp.abs(here - difference).max()) / scale < STRAIN_DENSITY_TOLERANCE
 
 
+def test_the_paw_deformation_potential_matches_a_finite_difference():
+    """Audit 2026-11-20c #20: ``deigenvalues`` carries PAW's one-centre response.
+
+    ``dH`` of the first-order eigenvalues is the bare strain perturbation plus the
+    converged ``dV_scf`` and, for PAW, the converged one-centre response ``dD``, the
+    same ``dH`` :func:`~defuqumat.response.strain.multiplier_response` builds. The
+    eigenvalue response left ``dD`` out. The reference is a central difference of
+    the valence width at Gamma (the top triplet's mean, which is gauge-free, minus
+    the lowest band) over the cells the strain response's own test re-converges,
+    re-diagonalised; a width rather than one band, because one band carries the
+    ``G = 0`` constant of an absolute deformation potential. Measured: -0.5218892
+    against -0.5218925, 6.4e-6 relative, where without ``dD`` it was -0.5205959,
+    2.5e-3. (On the whole-k route the per-k trace of ``deigenvalues`` against
+    ``tr(dLambda)/w`` was also measured, 1.7e-2 apart without ``dD`` and 8.9e-16
+    with it; the default route here walks and writes no ``dLambda``.)
+    """
+    case, step = "si-paw-nosym", 3e-3
+    response = _strain(case)
+    _, _, calculation, _, _, _ = _converged(case)
+
+    def width(energies):
+        energies = np.asarray(energies)
+        energies = energies if energies.ndim == 3 else energies[None]
+        return energies[0, 0, 1:4].mean() - energies[0, 0, 0]
+
+    assert np.allclose(np.asarray(calculation.system.kpoints.crystal(
+        calculation.system.cell))[0], 0.0), "the first k-point is Gamma"
+    widths = []
+    for sign in (1, -1):
+        moved, converged = _reconverged(case, sign * step * strain_tangent(0, 0))
+        widths.append(width(refined_states(moved, converged)[0]))
+    reference = (widths[0] - widths[1]) / (2 * step)
+    shifts = np.asarray(response.deigenvalues)[0, 0]
+    analytic = shifts[0, 0, 1:4].mean() - shifts[0, 0, 0]
+    assert abs(analytic - reference) < 1e-4 * abs(reference)
+
+
 def test_the_strain_response_converges():
     response = _strain("si-electrostriction")
     assert response.converged

@@ -253,10 +253,22 @@ Before we trust the numbers of a new crystal, we check four things.
     (`assume_isolated`), two chemical potentials (`twochem`, in `&system` or in
     `&control`), the occupations of an isolated atom (`one_atom_occupations`),
     the constant-cutoff kinetic functional (`qcutz`) and a fixed FFT grid (`nr1`
-    to `nr3s`). The four symmetry switches `no_t_rev`, `force_symmorphic`,
+    to `nr3s`). A 3D-RISM solvent (`trism`), external ionic force fields
+    (`nextffield`) and the charged plate of a gate (`gate`) also give an error.
+    The gate gives an error also without `tefield`, because with
+    `block = .true.` `pw.x` adds a potential barrier even to a neutral cell. The
+    four symmetry switches `no_t_rev`, `force_symmorphic`,
     `use_all_frac` and `nosym_evc` also give an error, because each one removes
     symmetry operations that the code would still use. A value equal to the
     default of `pw.x` gives no error, so an ordinary input never meets these.
+
+    Three cards give an error in the same way. These are external forces on the
+    atoms (`ATOMIC_FORCES`), constraints on the motion of the ions
+    (`CONSTRAINTS`) and a charged cell (`TOTAL_CHARGE`). So the test
+    `pw_relax/relax-extfor.in` of `pw.x` gives an error. A card of zeros,
+    `nconstr = 0` or a charge of zero gives no error, because `pw.x` then does
+    nothing with the card either. `CONSTRAINTS` gives an error also in an SCF,
+    where `pw.x` ignores it, because the same calculator can be relaxed later.
     `calculation = 'md'` and `calculation = 'vc-md'` give an error, because we
     have no molecular dynamics.
 
@@ -300,6 +312,17 @@ Before we trust the numbers of a new crystal, we check four things.
     PAW dataset as well, because the PAW spheres take one `c` and here `c` is a
     field. So with `lmbj` you use a norm-conserving dataset. It also gives an
     error for spinors, spin spirals and `nosource`, which are not checked.
+    With `nspin = 2` and a magnetic moment, `lmbj` runs, but this case is not
+    checked yet. We checked only the case with no moment, which gives the same
+    result as `nspin = 1`.
+    In the vacuum, `lmbj` holds the potential at its value in the tail of the
+    density, where 1e-5 < n < 1e-4. For a slab this value is taken for each
+    face on its own. So a slab with two different faces, for example a Janus
+    layer, has two values in its two vacua, and the potential has a step in
+    the middle of the vacuum. In any other cell one value is used for the whole
+    cell. This is right for one molecule or one wire in a box. For two slabs in
+    one cell, a molecule above a slab or a closed cavity, the separate tails
+    share one value, and the code warns after the SCF.
     With `tb09` or `bj06` the code warns that the total energy is not the
     energy of any functional, and forces, stress, phonons and the responses give
     an error.

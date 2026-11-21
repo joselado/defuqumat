@@ -298,3 +298,85 @@ def test_an_odd_moment_count_is_refused_before_the_unfolding():
 
     with pytest.raises(ValueError, match="n_moments must be even"):
         run_kpm_unfolded(None, None, None, np.eye(3), np.zeros((1, 3)), n_moments=41)
+
+
+def _fcc_cell():
+    from defuqumat.system.cell import Cell
+
+    half = 5.6 / 2.0
+    return Cell.from_vectors(np.array([[-half, 0.0, half], [0.0, half, half], [-half, half, 0.0]]))
+
+
+def test_an_explicit_wedge_is_refused_and_an_explicit_whole_grid_is_kept():
+    """A wedge written as a K_POINTS list is not a whole zone, with unequal or equal weights (audit 2026-11-20 #11).
+
+    ``whole_grid_calculation`` read only ``KPoints.reduced``, which an explicit
+    list never sets, so a written-out wedge passed unchanged and its weights
+    summed the spin, per-orbital, per-point and velocity traces over part of
+    the zone. Two wedges cut by time reversal alone: 3x3x3 unshifted (14
+    points, weights 1 and 2, which ``is_reduced``'s weight spread sees) and
+    2x2x2 shifted (4 points of weight 2, which it does not). Both are now
+    refused; the whole shifted grid written as a list is kept as it is, and
+    an automatic wedge still moves to its grid.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.kpm.traces import whole_grid_calculation
+    from defuqumat.system.kpoints import KPoints, is_reduced
+
+    cell = _fcc_cell()
+    identity = np.eye(3, dtype=int)[None]
+
+    def calculation(kpoints):
+        moved = []
+        return SimpleNamespace(system=SimpleNamespace(kpoints=kpoints, cell=cell, nspin=4),
+                               at_kpoints=lambda k: moved.append(k) or moved), moved
+
+    def written_out(kpoints):
+        return KPoints.from_cartesian(np.asarray(kpoints.coords), np.asarray(kpoints.weights))
+
+    unequal = written_out(KPoints.automatic((3, 3, 3), (0, 0, 0), cell, rotations=identity))
+    equal = written_out(KPoints.automatic((2, 2, 2), (1, 1, 1), cell, rotations=identity))
+    assert (unequal.nk, equal.nk) == (14, 4)
+    assert is_reduced(unequal) and not is_reduced(equal)
+    assert not (unequal.reduced or equal.reduced) and unequal.grid is equal.grid is None
+    for wedge in (unequal, equal):
+        with pytest.raises(ValueError, match="not a whole grid"):
+            whole_grid_calculation(calculation(wedge)[0])
+    from defuqumat.system.kpoints import covers_a_whole_grid
+
+    assert not covers_a_whole_grid(unequal, cell) and not covers_a_whole_grid(equal, cell)
+    for mesh, shift in (((2, 2, 2), (1, 1, 1)), ((3, 3, 1), (0, 0, 1)), ((1, 1, 1), (0, 0, 0))):
+        whole = written_out(KPoints.automatic(mesh, shift, cell))
+        assert covers_a_whole_grid(whole, cell), (mesh, shift)
+        stand_in, moved = calculation(whole)
+        assert whole_grid_calculation(stand_in) is stand_in and not moved
+    automatic = KPoints.automatic((2, 2, 2), (1, 1, 1), cell, rotations=identity)
+    assert automatic.reduced
+    stand_in, moved = calculation(automatic)
+    whole_grid_calculation(stand_in)
+    assert len(moved) == 1 and moved[0].nk == 8
+
+
+def test_spin_resolved_on_a_collinear_run_is_refused_before_the_whole_grid(monkeypatch):
+    """The spinor test sits at the door of ``run_kpm_dos`` (audit 2026-11-20 #27).
+
+    It used to sit in ``spin_resolved_dos``, after the move to the whole grid,
+    the Lanczos interval, the scalar moments and the control variate, so a
+    collinear call paid for the whole scalar DOS on the whole grid and then
+    raised. A spinor passes the door and reaches the move.
+    """
+    from types import SimpleNamespace
+
+    import defuqumat.kpm.dos as dos
+
+    def reached(*args, **kwargs):
+        raise LookupError("the whole-grid move was reached")
+
+    monkeypatch.setattr(dos, "_on_the_whole_grid", reached)
+    for nspin in (1, 2):
+        with pytest.raises(ValueError, match="needs a spinor"):
+            dos.run_kpm_dos(SimpleNamespace(noncolin=False, nspin=nspin), (), None,
+                            spin_resolved=True)
+    with pytest.raises(LookupError, match="reached"):
+        dos.run_kpm_dos(SimpleNamespace(noncolin=True, nspin=4), (), None, spin_resolved=True)

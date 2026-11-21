@@ -1,0 +1,231 @@
+diff --git a/defuqumat/scf/potential.py b/defuqumat/scf/potential.py
+index 93d30e9a..07f6376a 100644
+--- a/defuqumat/scf/potential.py
++++ b/defuqumat/scf/potential.py
+@@ -943,10 +943,18 @@ def meta_exchange(
+         # floor would otherwise set the vacuum potential (P182, the vacuum
+         # check). Each channel on its own density doubled, the density its
+         # exchange is evaluated at (audit 2026-11-20 #47); at nspin = 1 that is
+-        # the total, bit for bit.
++        # the total, bit for bit. The tail value is the shell's Gaussian
++        # average about each point, with the kernel c(r) is built with, so each
++        # face of a slab is held at its own (audit 2026-11-20 #9 and #10): two
++        # more FFT pairs per channel.
++        from defuqumat.basis.gradients import gaussian_average
+         from defuqumat.xc.mgga import hold_vacuum_potential
+ 
+-        v = hold_vacuum_potential(v, 2.0 * channels_r)
++        width = functional.lmbj_settings()[3]
++        v = hold_vacuum_potential(
++            v, 2.0 * channels_r,
++            average=lambda field: gaussian_average(field, gvectors, cell, width),
++        )
+     return v, c
+ 
+ 
+diff --git a/defuqumat/xc/mgga.py b/defuqumat/xc/mgga.py
+index f8fde3dd..bf177ab5 100644
+--- a/defuqumat/xc/mgga.py
++++ b/defuqumat/xc/mgga.py
+@@ -446,14 +446,26 @@ LMBJ_RS_THRESHOLD = 5.0
+ #: floor (1.6e-8 to 6.6e-8 in graphane's vacuum), and below it ``tau/n`` and
+ #: ``|grad n|/n`` are noise: evaluated there the vacuum potential sat 3.3 Ry
+ #: above PBE's, noisy, where the Becke-Johnson asymptote is
+-#: ``(1/pi) sqrt(5/12) kappa`` = 0.33 Ry. Held at its mean over the shell
++#: ``(1/pi) sqrt(5/12) kappa`` = 0.33 Ry. Held at its value over the shell
+ #: ``LMBJ_RHO_HOLD < n < 10 LMBJ_RHO_HOLD``, where the tail is clean, the vacuum
+-#: is flat; the switch is an erf in ``ln n`` about a decade wide.
++#: is flat; the switch is an erf in ``ln n`` about a decade wide, centred on
++#: ``LMBJ_RHO_HOLD``. The shell's value is a Gaussian average about each point
++#: since audit 2026-11-20 #9 and #10, so each face of a slab has its own.
+ LMBJ_RHO_HOLD = 1.0e-5
+ LMBJ_HOLD_WIDTH = 0.5 * 2.302585092994046  # ln(10)/2: the switch spans about a decade
+ 
+ 
+-def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH):
++#: Where the Gaussian average of the shell's indicator is below this, the
++#: local tail value falls back to the channel's mean over its whole shell. The
++#: indicator's average is a fraction, of order 0.1 next to a shell, and its FFT
++#: round-off is about 1e-17; the ratio stays clean down to well below this, and
++#: at the paper's 3.78 bohr it is reached only more than about 6 sigma, 24 bohr,
++#: from every point of the shell, in the middle of a vacuum wider than 50 bohr.
++LMBJ_TAIL_FLOOR = 1.0e-10
++
++
++def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH,
++                          average=None):
+     """The meta potential blended into its clean-tail value where the density is low.
+ 
+     Args:
+@@ -461,20 +473,32 @@ def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH)
+         rho: ``(nspin, ...)``, each channel's density **doubled**, ``2 n_sigma``,
+             the density each channel's exchange is evaluated at; a field of
+             ``v.shape[1:]`` is taken as the same for every channel.
++        average: the Gaussian average of one real field on the grid, the one
++            the local ``c`` is built with
++            (:func:`defuqumat.basis.gradients.gaussian_average` at
++            ``lmbj_sigma``). ``None`` takes the plain mean over the cell, which
++            is its limit at infinite width.
+ 
+         w(n) = [1 + erf(ln(n / rho_hold) / width)] / 2,   v_out = w v + (1 - w) v_tail,
+ 
+-    ``v_tail`` per channel the mean of ``v`` over ``rho_hold < n < 10 rho_hold``,
+-    with ``n`` that channel's own ``2 n_sigma`` in the shell and in the weight
+-    (audit 2026-11-20 #47): the channel potential is evaluated on the channel
+-    density, so its clean tail is where that density is clean. At ``nspin = 1``
+-    and on an unpolarized ``nspin = 2`` run ``2 n_sigma`` is the total, and the
+-    two regimes hold the same potential. ``w = 0`` where the density is not
+-    positive. ``w`` is 0.5 at ``rho_hold``, 0.73 at ``2 rho_hold`` and 0.998
+-    at ``10 rho_hold``, so the blend acts below about ``10 rho_hold``, centred
+-    on ``rho_hold``, not only below it. A channel with no point in its shell (a
+-    bulk crystal whose lowest density is above ``10 rho_hold``) keeps ``v`` as
+-    it is.
++        v_tail(r) = avg[shell v](r) / avg[shell](r),
++
++    with ``shell`` the points ``rho_hold < n < 10 rho_hold`` (audit 2026-11-20
++    #9 and #10, the user's choice): the tail value is the clean shell's
++    potential **near** ``r``, so the two faces of a slab that differ, or a
++    molecule above a surface, are each held at their own tail, where one cell
++    mean put both at the average of the two. ``n`` is each channel's own
++    ``2 n_sigma``, in the shell and in the weight (audit 2026-11-20 #47): the
++    channel potential is evaluated on the channel density, so its clean tail
++    is where that density is clean. At ``nspin = 1`` and on an unpolarized
++    ``nspin = 2`` run ``2 n_sigma`` is the total, and the two regimes hold the
++    same potential. ``w = 0`` where the density is not positive. ``w`` is 0.5
++    at ``rho_hold``, 0.73 at ``2 rho_hold`` and 0.998 at ``10 rho_hold``, so
++    the blend acts below about ``10 rho_hold``, centred on ``rho_hold``, not
++    only below it. Where ``avg[shell]`` is below :data:`LMBJ_TAIL_FLOOR` the
++    tail value is the channel's mean over its shell. A channel with no point in
++    its shell (a bulk crystal whose lowest density is above ``10 rho_hold``)
++    keeps ``v`` exactly as it is.
+     """
+     v = jnp.asarray(v)
+     rho = jnp.broadcast_to(jnp.asarray(rho), v.shape)
+@@ -484,7 +508,15 @@ def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH)
+     shell = (rho > rho_hold) & (rho < 10.0 * rho_hold)
+     axes = tuple(range(1, v.ndim))
+     count = jnp.sum(shell, axis=axes, keepdims=True)
+-    v_tail = jnp.sum(jnp.where(shell, v, 0.0), axis=axes, keepdims=True) / jnp.maximum(count, 1)
++    in_shell = jnp.where(shell, v, 0.0)
++    v_tail = jnp.sum(in_shell, axis=axes, keepdims=True) / jnp.maximum(count, 1)
++    if average is not None:
++        nspin = v.shape[0]
++        smooth = jax.vmap(average)(
++            jnp.concatenate([in_shell, jnp.where(shell, 1.0, 0.0).astype(v.dtype)]))
++        numerator, denominator = smooth[:nspin], smooth[nspin:]
++        near = denominator > LMBJ_TAIL_FLOOR
++        v_tail = jnp.where(near, numerator / jnp.where(near, denominator, 1.0), v_tail)
+     held = weight * v + (1.0 - weight) * v_tail
+     return jnp.where(count > 0, held, v)
+ 
+diff --git a/tests/unit/test_lmbj.py b/tests/unit/test_lmbj.py
+index 979eb19b..5f7715a6 100644
+--- a/tests/unit/test_lmbj.py
++++ b/tests/unit/test_lmbj.py
+@@ -330,8 +330,16 @@ def _sheet_potential(channels, monkeypatch=None, functional=None):
+     return np.asarray(v)[:, 0, 0, :]
+ 
+ 
+-def _held_reference(v_raw, rho):
+-    """The hold written out on one channel along ``z``: the shell and ``w`` on ``rho``."""
++def _held_reference(v_raw, rho, z, sigma=None):
++    """The hold written out on one channel along ``z``, with no FFT.
++
++    The shell and ``w`` are on ``rho``. The tail value is the shell's mean
++    over the cell when ``sigma`` is ``None``, and otherwise its Gaussian
++    average about each point divided by the indicator's, both summed in real
++    space over the images along ``z`` (the field is uniform in the plane, so
++    the in-plane Gaussian integrates to one in both). Returns the held
++    potential and the indicator's average, to mask where the ratio is noise.
++    """
+     from scipy.special import erf
+ 
+     from defuqumat.xc.mgga import LMBJ_HOLD_WIDTH, LMBJ_RHO_HOLD
+@@ -340,8 +348,63 @@ def _held_reference(v_raw, rho):
+     weight = np.where(positive, 0.5 * (1.0 + erf(
+         np.log(np.where(positive, rho, LMBJ_RHO_HOLD) / LMBJ_RHO_HOLD) / LMBJ_HOLD_WIDTH)), 0.0)
+     shell = (rho > LMBJ_RHO_HOLD) & (rho < 10.0 * LMBJ_RHO_HOLD)
+-    tail = v_raw[shell].mean()
+-    return weight * v_raw + (1.0 - weight) * tail
++    if sigma is None:
++        tail = np.full_like(v_raw, v_raw[shell].mean())
++        indicator = np.full_like(v_raw, shell.mean())
++    else:
++        d = z[:, None] - z[None, :]
++        kernel = sum(np.exp(-0.5 * (d + m * _SHEET_LENGTH) ** 2 / sigma ** 2) for m in range(-3, 4))
++        kernel *= (z[1] - z[0]) / (np.sqrt(2.0 * np.pi) * sigma)
++        indicator = kernel @ shell.astype(float)
++        tail = (kernel @ np.where(shell, v_raw, 0.0)) / np.where(indicator > 0.0, indicator, 1.0)
++    return weight * v_raw + (1.0 - weight) * tail, indicator
++
++
++def test_each_face_of_a_sheet_is_held_at_its_own_tail(monkeypatch):
++    """The tail value is the shell's Gaussian average about each point (audit 2026-11-20 #9, #10).
++
++    A sheet whose upper face decays as ``exp(-1.2 z)`` and lower face as
++    ``exp(-2 z)``, the two faces of a slab that differ. With one cell mean
++    both vacua were held at the same value; with the user's local form,
++    ``avg[shell v] / avg[shell]`` with the kernel ``c(r)`` is built with, each
++    is held at its own face's tail. Checked against the same formula summed in
++    real space, with no FFT.
++    """
++    from defuqumat.xc.mgga import LMBJ_SIGMA
++
++    _, _, z = _sheet_grid()
++    n, dn = _sheet_profile(z, 0.6, 1.0)
++    channel = [(n, _sheet_tau(n, dn))]
++    held = _sheet_potential(channel)[0]
++    raw = _sheet_potential(channel, monkeypatch)[0]
++    expected, indicator = _held_reference(raw, n, z, LMBJ_SIGMA)
++    reach = indicator > 1e-8
++    assert reach.mean() > 0.9
++    assert np.abs(held - expected)[reach].max() < 1e-10
++    # where each face's tail first falls below 1e-7, two decades under the
++    # shell and w below 1e-3: two values, not one
++    deep = n < 1e-7
++    above = np.flatnonzero(deep & (z > 20.0))[0]
++    below = np.flatnonzero(deep & (z < 20.0))[-1]
++    assert abs(held[above] - held[below]) > 5e-3
++
++
++def test_at_infinite_width_the_tail_is_the_shell_mean(monkeypatch):
++    """With ``lmbj_sigma = 1000`` the Gaussian keeps only ``G = 0``: the cell mean.
++
++    The local tail at infinite width is the mean of the potential over the
++    shell, the form the hold had before audit 2026-11-20 #9 and #10.
++    """
++    from defuqumat.xc.functional import resolve_functional
++
++    _, _, z = _sheet_grid()
++    n, dn = _sheet_profile(z, 0.6, 1.0)
++    channel = [(n, _sheet_tau(n, dn))]
++    wide = resolve_functional(["PZ"], "lmbj").with_lmbj(sigma=1000.0)
++    held = _sheet_potential(channel, functional=wide)[0]
++    raw = _sheet_potential(channel, monkeypatch, functional=wide)[0]
++    expected, _ = _held_reference(raw, n, z)
++    assert np.abs(held - expected).max() < 1e-10
+ 
+ 
+ def test_a_polarized_channel_is_held_on_its_own_density(monkeypatch):
+@@ -354,6 +417,8 @@ def test_a_polarized_channel_is_held_on_its_own_density(monkeypatch):
+     weight below 0.03, and its potential has to be held there. On the total's
+     shell it was left as evaluated.
+     """
++    from defuqumat.xc.mgga import LMBJ_SIGMA
++
+     _, _, z = _sheet_grid()
+     n, dn = _sheet_profile(z, 0.6, 1.0, peak=0.3)
+     ratio = 1e-4
+@@ -362,8 +427,10 @@ def test_a_polarized_channel_is_held_on_its_own_density(monkeypatch):
+     raw = _sheet_potential(channels, monkeypatch)
+     for s, (rho, _) in enumerate(channels):
+         assert ((2.0 * rho > 1e-5) & (2.0 * rho < 1e-4)).sum() >= 3
+-        expected = _held_reference(raw[s], 2.0 * rho)
+-        assert np.abs(held[s] - expected).max() < 1e-12
++        expected, indicator = _held_reference(raw[s], 2.0 * rho, z, LMBJ_SIGMA)
++        reach = indicator > 1e-8
++        assert reach.mean() > 0.9
++        assert np.abs(held[s] - expected)[reach].max() < 1e-10
+     inside = (n > 1e-3) & (2.0 * channels[1][0] < 2e-6)
+     assert inside.sum() >= 4
+     assert np.abs(held[1][inside] - raw[1][inside]).min() > 1e-3

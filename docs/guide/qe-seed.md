@@ -192,7 +192,16 @@ density (`startingpot='file'`).
     Its `data-file-schema.xml` has only what our reader checks, so `pp.x`,
     `projwfc.x` and an `nscf` run of `pw.x` cannot read it. Run the short restart
     first, and `pw.x` then writes its own full folder for them. A spin spiral
-    cannot be written, because `pw.x` has none. The HDF5 form is never written.
+    cannot be written, because `pw.x` has none. The HDF5 form is never written,
+    so the restart must use a `pw.x` built without HDF5. A `pw.x` built with
+    HDF5 looks only for `charge-density.hdf5`. It prints "Cannot read rho : file
+    not found", starts from atomic charges and gives no error.
+    Do not restart with `memory='small'` on more than one process per pool.
+    There `pw.x` numbers the G vectors by process and not in the global order
+    we write. It then reads a wrong density and does not say so. We found this
+    in the source of `pw.x` and have not run it.
+    With k-point pools (`DEFUQUMAT_POOLS`) `write_qe_save` gives an error,
+    because every pool would write the same files at the same time.
     A meta-GGA restart was checked with a `pw.x` 7.2 built with libxc. It reads
     our `ekin-density.dat` correctly. But `input_dft = 'tb09'` in `pw.x` calls
     libxc with no Laplacian and with `c = 1`, and it adds TPSS correlation.
@@ -206,6 +215,10 @@ density (`startingpot='file'`).
     `&system` for the SCF whose state you write. On iron with DFT+U and
     spin-orbit coupling, `pw.x` then restarts in one iteration, and in 15
     from the `'grad_m'` state. On an arsenic atom it is one against three.
+    A spin-orbit run with `soc_scale` other than 1 (`System.with_soc_scale`)
+    is written with a warning. `pw.x` has no such switch, and with `lspinorb`
+    it always takes the whole coupling. So `pw.x` reads the file as a start
+    and converges to another state. We have not run this restart.
 
     The density can only start an SCF. There is no route that computes bands or a
     density of states from it with no SCF at all. With the same input this costs one

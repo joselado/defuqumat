@@ -392,10 +392,10 @@ def strain_response(
     if streamed:
         dpsi = strains.first_order_states()
         derivatives, ort = strains.overlap_derivatives()
-        elements = strains.eigenvalue_response(dvscf)
+        elements = strains.eigenvalue_response(dvscf, onecentre)
     else:
         dpsi = strains.dpsi
-        elements = _eigenvalue_response(solver, bare, dvscf)
+        elements = _eigenvalue_response(solver, bare, dvscf, onecentre)
         # 4. The multipliers' own tangent, which the elastic constants of an
         #    ultrasoft or PAW dataset need beside ``dpsi + ort`` (I87). Not
         #    written for the walked route, which the elastic constants refuse
@@ -895,11 +895,17 @@ def _shifts(elements, eigenvalues, degeneracy_tol) -> np.ndarray:
     return out
 
 
-def _eigenvalue_response(solver, bare, dvscf) -> np.ndarray:
+def _eigenvalue_response(solver, bare, dvscf, onecentre=None) -> np.ndarray:
     """``<psi_m|dH_bare + dV_scf|psi_n>``, ``(3, 3, nspin, nk, nocc, nocc)``.
 
     The matrix rather than its diagonal, so that :func:`_shifts` can take the
     first-order eigenvalues inside a degenerate multiplet from the block.
+
+    ``onecentre`` is PAW's converged one-centre response (``PAW_dpotential``,
+    ``(3, 3, nspin_mag, nkb, nkb)``), which is part of ``dV_scf``'s ``dH``
+    as ``int3_paw`` is part of ``adddvscf``'s, and which
+    :func:`multiplier_response` adds too. ``None`` for a norm-conserving or an
+    ultrasoft dataset. It was left out until audit 2026-11-20c #20.
 
     QE computes this nowhere for a strain: ``ph.x`` has no strain perturbation.
     It is needed because the Sternheimer operator carries ``eps_n`` explicitly,
@@ -913,7 +919,8 @@ def _eigenvalue_response(solver, bare, dvscf) -> np.ndarray:
     out = np.empty((3, 3) + psi.shape[:3] + psi.shape[2:3], dtype=complex)
     for a in range(3):
         for b in range(a, 3):
-            induced = solver.perturbation(dvscf[a, b])
+            induced = solver.perturbation(
+                dvscf[a, b], None if onecentre is None else onecentre[a, b])
             blocks = []
             for spin in range(solver.nspin):
                 def one_k(ik, spin=spin, a=a, b=b):

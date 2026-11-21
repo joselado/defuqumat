@@ -69,6 +69,7 @@ from defuqumat.forces.energy import (
     reject_potential_only,
     reject_spinor_spiral,
     reject_spinors,
+    reject_tensor_moment_constraint,
 )
 from defuqumat.scf.sawtooth import refuse_sawtooth
 
@@ -127,6 +128,7 @@ def require_a_differentiable_cell(calculation) -> None:
             "is stationary for a different functional than the one being "
             "differentiated and the missing term would be silent"
         )
+    reject_tensor_moment_constraint(calculation, "the stress")
 
 
 def strain_of(deformation) -> jnp.ndarray:

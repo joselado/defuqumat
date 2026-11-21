@@ -185,9 +185,14 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     forces, the stress and the density of states are then the same as with
     `nosym`. Some runs still need `nosym`: an ultrasoft or PAW dataset, DFT+U, a
     fully relativistic dataset, an explicit list of k-points (so also a band
-    structure along a path), the site angular momenta and the projected density
-    of states. A change of $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
+    structure along a path) and the site angular momenta. A change of
+    $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
     the relaxation of $\mathbf q$ and the scan need it too.
+    The projected density of states of a spiral gives an error, also with
+    `nosym`. The reason is that the two spinor components are on the spheres of
+    $\mathbf k + \mathbf q/2$ and $\mathbf k - \mathbf q/2$, and the projection
+    on the orbitals of each sphere is not written. For a commensurate
+    $\mathbf q$ you can use the supercell instead.
     It also needs starting moments off the rotation axis $z$, because a moment
     along $z$ does not turn and the run would converge to the ferromagnet, so you
     set `angle1` or give the moments a transverse part.
@@ -228,6 +233,12 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
     `gradients=True`, gives an error under a magnetic field or a constrained
     moment, because the energy of the field is not part of the total energy.
+    It also gives an error with a potential-only meta-GGA (`tb09`, `bj06`) and
+    under `nosource`, because there the SCF does not minimise any energy. With
+    DFT+U on a norm-conserving spiral it works: the Hubbard projectors move
+    with $\mathbf q$, and the Hubbard energy is part of the energy we
+    differentiate. On a hydrogen chain with $U = 4$ eV it agrees with the slope
+    of two converged energies at $q \pm 0.01$ to $4\times10^{-6}$ Ry.
     On large cells above `DEFUQUMAT_AUG_MAX_BYTES` the augmentation charge is
     kept as a radial table. $dE/d\mathbf q$ works there too. It agrees with the
     stored table to 4e-11 Ry per unit of $\mathbf q$.
@@ -239,7 +250,10 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     is not derived. It gives an error for a $\mathbf q$ in the reciprocal lattice,
     because that is a uniform magnet, and for a uniform magnet you call
     `get_first_order_soc()` instead. It also gives an error for a spiral
-    converged under a field or a constraint.
+    converged under a field or a constraint. It gives an error too when the
+    bands are in single precision, with `band_precision="single"` or `"mixed"`
+    or with `DEFUQUMAT_BAND_PRECISION`, because this energy is a sum of terms
+    of both signs and we have not measured it in single precision.
 
     The fit of a Heisenberg model to $E(\mathbf q)$ is `heisenberg_exchange` in
     `defuqumat.workflows.spiral`. It gives an error for a shell vector that is not

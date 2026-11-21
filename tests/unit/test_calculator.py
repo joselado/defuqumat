@@ -616,6 +616,45 @@ def test_origin_tangent_reaches_the_calculation_from_the_front_door(pseudo_dir):
     assert calc.calculation.origin_tangent is False
 
 
+def test_the_setup_it_was_built_with_is_not_a_change(pseudo_dir, monkeypatch):
+    """``get_scf(origin_tangent=True)`` on a cache hit keeps the setup (audit 2026-11-20 #20).
+
+    ``True`` is what the ``Calculation`` is built with when nothing is said,
+    and ``_adopt`` compared it against ``None``: the second call rebuilt the
+    ``Calculation`` and emptied the dielectric slot, so the Born charges solved
+    the three field perturbations again. The SCF and the solve are stand-ins
+    and counted. ``False`` is a change and still rebuilds.
+    """
+    from types import SimpleNamespace
+
+    import defuqumat.calculator as calculator
+    import defuqumat.response.efield as efield
+
+    solves = []
+
+    def stand_in(calculation, wavefunctions, eigenvalues, density, becsum, **options):
+        solves.append(calculation)
+        return SimpleNamespace(born_charges=np.zeros((2, 3, 3)), options=options)
+
+    ground = SimpleNamespace(wavefunctions=None, eigenvalues=None, density=None, becsum=())
+    monkeypatch.setattr(efield, "dielectric_tensor", stand_in)
+    monkeypatch.setattr(calculator, "run_scf", lambda *args, **kwargs: ground)
+    calc = Calculator.from_text(SILICON, pseudo_dir, announce=False)
+    monkeypatch.setattr(calc, "_ground_state", lambda what: ground)
+    assert calc.get_scf() is ground
+    setup = calc.calculation
+    calc.get_dielectric_tensor()
+    assert calc.get_scf(origin_tangent=True) is ground
+    assert calc.calculation is setup
+    calc.get_born_charges()
+    assert len(solves) == 1
+
+    calc.get_scf(origin_tangent=False)
+    assert calc.calculation is not setup and calc.calculation.origin_tangent is False
+    calc.get_born_charges()
+    assert len(solves) == 2
+
+
 def test_david_is_a_setup_option_and_rebuilds_the_calculation(pseudo_dir):
     """Given per call it has to replace the ``Calculation``, not a run default.
 

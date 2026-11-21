@@ -133,7 +133,9 @@ def run_quantum_metric(
         1.0 if field_scale is None else float(field_scale),
         field, tau=tau,
     )
-    _, ddd_paw = calculation.onecenter(becsum)
+    # The PAW spheres take this potential's ``c`` under a potential-only
+    # meta-GGA, as the band solve's do (audit 2026-11-20c #6, the sibling).
+    _, ddd_paw = calculation.onecenter(becsum, None if tau is None else potential.meta_c)
     degeneracy_tol = degeneracy_tolerance(
         degeneracy_tol, DEGENERACY_TOL,
         ethr=fixed_density_ethr(conv_thr, calculation.nelec),
@@ -229,9 +231,13 @@ def _by_overlaps(system, pseudos, density, *, divisions, becsum, ns, tau, field,
 
 
 def _electrons(system, pseudos) -> float:
-    from defuqumat.scf.driver import Calculation
+    """``nelec``: the valence charges of the atoms, summed as ``Calculation`` sums them.
 
-    nelec = getattr(system, "nelec", None)
-    if nelec is not None:
-        return float(nelec)
-    return float(Calculation(system, pseudos).nelec)
+    The same expression, in the same order, as ``Calculation.__init__``
+    (``scf/driver.py``), so the number is bit-identical. ``System`` holds no
+    pseudopotentials and so has no ``nelec``; this used to build a second whole
+    ``Calculation`` to read it, both G sets and on an ultrasoft or PAW dataset
+    the ``Q_ij(G)`` table, after the mesh of states was already held (audit
+    2026-11-20c #16).
+    """
+    return float(sum(pseudos[t].z_valence for t in system.structure.types))

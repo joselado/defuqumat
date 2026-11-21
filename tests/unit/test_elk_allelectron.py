@@ -178,6 +178,136 @@ def test_atoms_that_do_not_coincide_are_refused(tmp_path):
         calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
 
 
+@pytest.mark.parametrize("labels", [("O_up", "O_dn"), ("O1", "O2")])
+def test_a_label_with_a_tag_is_its_dataset_element(labels):
+    """Labels ``O_up`` and ``O_dn`` on oxygen match Elk's ``'O.in'`` (AUDIT-2026-11-20 #17).
+
+    The element was read off the label, two letters when the second is lower
+    case, so ``O_up`` was ``'Ou'`` and the template was refused as "do not
+    coincide". No SCF is needed: the atoms are matched before the density is read.
+    """
+    from defuqumat.io.elk import read_elk_geometry
+    from defuqumat.io.elk_allelectron import _match_atoms
+
+    text = O2.format(spin="nspin=2, starting_magnetization(1)=0.5, "
+                     "starting_magnetization(2)=0.5, occupations='smearing', degauss=0.02")
+    text = text.replace(", nat=2, ntyp=1,", ", nat=2, ntyp=2,").replace(
+        " O 15.99994 O.pz-kjpaw.UPF",
+        f" {labels[0]} 15.99994 O.pz-kjpaw.UPF\n {labels[1]} 15.99994 O.pz-kjpaw.UPF").replace(
+        " O 0.0 0.0 0.0\n O 0.0 0.0 3.4", f" {labels[0]} 0.0 0.0 0.0\n {labels[1]} 0.0 0.0 3.4")
+    calc = Calculator.from_text(text, pseudo_dir=PSEUDO, announce=False)
+    geometry = read_elk_geometry(TEMPLATE.parent / "o2_template_collinear" / "GEOMETRY.OUT")
+    order, shift = _match_atoms(calc.calculation, geometry)
+    assert order.tolist() == [0, 1]
+    np.testing.assert_allclose(shift, 0.0, atol=1e-5)
+
+
+def test_the_core_join_spans_a_factor_e():
+    """``_dirac_core`` takes the template below ``r_join / e`` and ours from ``r_join``.
+
+    The log is natural, so with ``decades = 1`` the step spans a factor e, not
+    ten (AUDIT-2026-11-20 #6). The P181 rows were measured with this join, and
+    its texts now say so; this pins the code to them.
+    """
+    from defuqumat.io.elk_allelectron import _dirac_core
+
+    base = ElkState.read(TEMPLATE)
+    r = np.asarray(base.rsp[0])[:base.nrmt[0]]
+    for r_join in (0.1, 1.0e-4):
+        out = _dirac_core(r, np.ones_like(r), 2.0 * np.ones_like(r), r_join, False)
+        np.testing.assert_array_equal(out[r <= r_join / np.e], 2.0)
+        np.testing.assert_array_equal(out[r >= r_join], 1.0)
+        between = out[(r > r_join / np.e) & (r < r_join)]
+        assert len(between) and np.all((between > 1.0) & (between < 2.0))
+
+
+AFM_TRANSLATED = """&control
+ calculation='scf'
+/
+&system
+ ibrav=1, celldm(1)=6.0, nat=2, ntyp=2, ecutwfc=20.0, ecutrho=80.0, nspin=2,
+ starting_magnetization(1)=-0.5, starting_magnetization(2)=0.5,
+ occupations='smearing', smearing='gaussian', degauss=0.02
+/
+&electrons
+ mixing_beta=0.3
+/
+ATOMIC_SPECIES
+ O1 15.99994 O.pz-kjpaw.UPF
+ O2 15.99994 O.pz-kjpaw.UPF
+ATOMIC_POSITIONS crystal
+ O1 0.0 0.0 0.0
+ O2 0.5 0.5 0.5
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0
+"""
+
+
+def test_an_internal_translation_keeps_the_sublattices(tmp_path):
+    """Two O in a 6 bohr cube, at 0 and at the centre, antiparallel (AUDIT-2026-11-20 #37).
+
+    The cell is invariant under (1/2, 1/2, 1/2), so the shift 0 and that
+    translation both map the positions. Elk's template lists the centre first,
+    with +0.431 there and -0.431 at the origin; our run has the same signs on
+    the same sites. Matching took the first shift that worked, which pairs
+    Elk's centre with our origin and wrote every moment on the opposite site.
+    The shift is now chosen by the template's moments. Labels ``O1``/``O2``, so
+    the old element reading of #17 does not interfere. One SCF iteration.
+    """
+    import shutil
+
+    template = TEMPLATE.parent / "o2_afm_translated"
+    calc = Calculator.from_text(AFM_TRANSLATED, pseudo_dir=PSEUDO, announce=False)
+    result = calc.get_scf(max_iterations=1)
+    ours = np.asarray(result.site_moments)[:, 0]
+    assert ours[0] < -0.05 and ours[1] > 0.05
+    calc.write_elk_state(tmp_path, template, result)
+    shutil.copy(template / "GEOMETRY.OUT", tmp_path)
+    written = _site_moments(ElkState.read(tmp_path))[:, 0]
+    elk = _site_moments(ElkState.read(template))[:, 0]
+    assert elk[0] > 0.3 and elk[1] < -0.3
+    assert np.all(np.sign(written) == np.sign(elk))
+
+
+def test_the_shared_expansion_is_the_per_atom_scatter_to_the_bit():
+    """One harmonic table and one sparse shell sum for all atoms (AUDIT-2026-11-20 #22).
+
+    The reference is the per-atom form it replaced: the harmonics recomputed
+    and one ``np.add.at`` per ``(l, m, component)``. The shell sum adds in the
+    order of ``G`` in both, so the arrays are equal, not close.
+    """
+    from scipy.special import spherical_jn
+
+    from defuqumat.io.elk_allelectron import (FOURPI, _bessel_table, _expansion_basis,
+                                              _muffin_tin_expansion)
+    from defuqumat.io.elk_density import real_spherical_harmonics
+
+    rng = np.random.default_rng(3)
+    n, a, lmax = 10, 10.2, 4
+    idx = np.indices((n, n, n)).reshape(3, -1).T
+    G = np.where(idx > n // 2, idx - n, idx) @ (2 * np.pi / a * np.eye(3))
+    c = rng.normal(size=(2, len(G))) + 1j * rng.normal(size=(2, len(G)))
+    r = np.geomspace(1e-6, 2.2, 60)
+    basis = _expansion_basis(G, lmax)
+    bessel = _bessel_table(basis[1], lmax, r)
+    for centre in rng.uniform(0, a, size=(3, 3)):
+        gn = np.linalg.norm(G, axis=1)
+        phase = np.exp(1j * G @ centre)[None, :] * c
+        rg = real_spherical_harmonics(lmax, np.where(gn[:, None] > 0, G, [0.0, 0.0, 1.0]))
+        shells, inverse = np.unique(np.round(gn, 10), return_inverse=True)
+        reference = np.zeros((2, (lmax + 1) ** 2, len(r)))
+        for l in range(lmax + 1):
+            jl = spherical_jn(l, np.outer(shells, r))
+            for lm in range(l * l, (l + 1) ** 2):
+                amplitude = np.zeros((2, len(shells)), dtype=complex)
+                for k in range(2):
+                    np.add.at(amplitude[k], inverse, phase[k] * rg[:, lm])
+                reference[:, lm] = (FOURPI * (1j ** l) * amplitude @ jl).real
+        np.testing.assert_array_equal(
+            _muffin_tin_expansion(c, G, centre, lmax, r, basis, bessel), reference)
+
+
 def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
     import dataclasses
@@ -195,6 +325,102 @@ def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     calc = _calculator()
     with pytest.raises(NotImplementedError, match="larger rmt"):
         calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
+
+
+@lru_cache(maxsize=1)
+def _one_iteration():
+    calc = _calculator()
+    return calc, calc.get_scf(max_iterations=1)
+
+
+def _template_with(tmp_path, elk_in, nsymcrys):
+    """A copy of the Si2 template with ``elk_in`` appended and INFO.OUT's count edited."""
+    import re
+    import shutil
+
+    directory = tmp_path / "template"
+    shutil.copytree(TEMPLATE, directory)
+    with open(directory / "elk.in", "a") as handle:
+        handle.write(elk_in)
+    info = (directory / "INFO.OUT").read_text()
+    info = re.sub(r"(Number of crystal symmetries\s*:\s*)\d+", rf"\g<1>{nsymcrys:4d}", info)
+    (directory / "INFO.OUT").write_text(info)
+    return directory
+
+
+def _write_on(tmp_path, template):
+    import shutil
+
+    calc, result = _one_iteration()
+    out = tmp_path / "out"
+    calc.write_elk_state(out, template, result)
+    shutil.copy(template / "GEOMETRY.OUT", out)
+    return ElkState.read(out)
+
+
+def test_a_dft_u_template_is_refused(tmp_path):
+    """A template with ``dftu = 1`` would leave its ``vmatmt`` on file (AUDIT-2026-11-20 #1).
+
+    Elk 11.0.2 reads that matrix when the run and the file both have DFT+U
+    (``readstate.f90:251``) and diagonalises with it before rebuilding it, so
+    the first loop would pair our density with the template's U matrix. The
+    template here is the Si2 one with ``dftu = 1`` and a nonzero matrix; the
+    same template without it is the ``written`` fixture.
+    """
+    import dataclasses
+    import shutil
+
+    from defuqumat.io.elk_write import write_elk_state
+
+    template = tmp_path / "template"
+    shutil.copytree(TEMPLATE, template)
+    base = ElkState.read(template)
+    vmat = np.zeros((base.lmmaxdm, 1, base.lmmaxdm, 1, 2), dtype=complex)
+    vmat[1, 0, 1, 0, :] = vmat[2, 0, 2, 0, :] = vmat[3, 0, 3, 0, :] = -0.05
+    write_elk_state(template / "STATE.OUT", dataclasses.replace(base, dftu=1, vmatmt=vmat))
+    assert ElkState.read(template).dftu == 1
+    with pytest.raises(NotImplementedError, match="DFT\\+U state"):
+        _write_on(tmp_path, template)
+    assert not (tmp_path / "out" / "STATE.OUT").exists()
+
+
+def test_a_group_elk_did_not_use_is_refused(tmp_path):
+    """INFO.OUT says 24 operations and elk.in says symtype 1: the two disagree."""
+    template = _template_with(tmp_path, "", 24)
+    with pytest.raises(NotImplementedError, match="24 crystal symmetries"):
+        _write_on(tmp_path, template)
+
+
+def test_nosym_writes_the_potential_without_the_group_average(tmp_path):
+    """``nosym``: Elk 11.0.2 prints 1 crystal symmetry for Si2, and ``symrfmt`` is then the identity.
+
+    The 48-operation average moves ``vxcmt`` by more than 1e-6 in the channels
+    the site symmetry forbids, so this tells the two apart.
+    """
+    template = _template_with(tmp_path, "\nnosym\n  .true.\n", 1)
+    state = _write_on(tmp_path, template)
+    params = read_elk_parameters(template)
+    bare = kohn_sham_potential(state, params, None)
+    nr = state.nrmt[0]
+    # The identity alone is still a quadrature of Y_lm Y_lm': 1.6e-13 on a 45 Ha scale.
+    # Averaged over the 48 operations it was 7.17e-3 Ha away (13501076).
+    np.testing.assert_allclose(bare["vxcmt"][:, :nr], state.vxcmt[:, :nr] / 2.0, atol=1e-12)
+    assert (params.symtype, params.nsymcrys) == (0, 1)
+    averaged = kohn_sham_potential(state, params, crystal_symmetrizer(state, params.lmaxo)[0])
+    assert np.abs(averaged["vxcmt"][:, :nr] - bare["vxcmt"][:, :nr]).max() > 1e-6
+
+
+def test_symtype_2_takes_the_operations_without_a_translation(tmp_path):
+    """``symtype 2``: Elk 11.0.2 prints 24 for Si2, the point group of the first atom."""
+    template = _template_with(tmp_path, "\nsymtype\n  2\n", 24)
+    state = _write_on(tmp_path, template)
+    params = read_elk_parameters(template)
+    symmetry, nsym = crystal_symmetrizer(state, params.lmaxo, params=params)
+    assert nsym == 24
+    potential = kohn_sham_potential(state, params, symmetry)
+    nr = state.nrmt[0]
+    np.testing.assert_allclose(potential["vxcmt"][:, :nr], state.vxcmt[:, :nr] / 2.0,
+                               atol=1e-13)
 
 
 O2 = """&control

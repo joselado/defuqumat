@@ -323,6 +323,24 @@ several cards are in
     scratch directory. We have not timed the default of 10 on a large cell, so
     you may need to set `checkpoint_every` yourself.
 
+    A checkpoint is read only by the run that wrote it. If you give
+    `checkpoint_dir` when you create the calculator, it is the directory of
+    `get_scf` of this calculator, and `get_relax` keeps the files of the
+    relaxation there too. A calculator that you derive from it with
+    `with_positions`, `with_cell`, `with_kpoints`, `with_spin`, `with_moments`,
+    `with_turning_moments` or `relaxed` is another run, so it does not get the
+    directory, and the code gives a warning. To write a checkpoint for the
+    derived calculator you give it a directory of its own in the call,
+    `child.get_scf(checkpoint_dir=...)`. The same holds for `mixing_from`.
+    `get_spiral_scan`, `get_relaxed_anisotropy` and
+    `get_magnetoelectric_tensor` run several ground states in one call, so they
+    also do not take the directory of the calculator, and these runs write no
+    checkpoint. The code does not check that you use one directory for one run
+    only. A checkpoint stores the shapes of the arrays and not the moments, the
+    positions, the field or the spiral wavevector. If you give the same
+    directory to two different runs, the second one can continue from the
+    state of the first, so you use a different directory for each run.
+
     `k_batch="fit"` is chosen for the k-points of the SCF, and a band path or
     an NSCF run uses the same number. It grows the number of k-points only when
     all the bands of one k-point fit on the card, otherwise it stays at one
@@ -357,7 +375,9 @@ several cards are in
     norm-conserving calculation. DFT+U or a meta-GGA together with ultrasoft,
     PAW, spinors or a spiral gives an error. A constrained moment
     (`constrained_magnetization`), an applied magnetic field and a Berry-phase
-    field (`lelfield`) also give an error. The total energy of TB09 is not a
+    field (`lelfield`) also give an error. A saw-tooth field (`tefield`, with or
+    without `dipfield`) gives an error too, because we have not measured it in
+    single precision. The total energy of TB09 is not a
     physical quantity, in any precision. TB09 is used for its eigenvalues. In
     single precision they are $5.5\times10^{-5}$ Ry from the converged double
     ones, and a double run stopped at the same `conv_thr` is
@@ -368,7 +388,10 @@ several cards are in
     carries its round-off as a plausible force. The topological invariants,
     the Berry-phase polarization, the Kubo conductivities, the orbital
     magnetization, the magnetic anisotropy and the torque also give an error
-    there. This
+    there. So do the relaxation of the orientation
+    (`get_relaxed_orientation`), the first-order spin-orbit term
+    (`get_first_order_soc`) and the first-order spin-orbit energy of a spiral
+    (`get_spiral_spin_orbit_energy`). This
     also holds for a `Calculator` built with `"mixed"`, which keeps its
     single-precision setup. For these, you converge again in double
     precision, starting from the single-precision result with

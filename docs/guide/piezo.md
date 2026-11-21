@@ -324,7 +324,11 @@ The two runs together took 123 s on one core.
     constants also need the full k-mesh (`nosym`), so on a symmetry-reduced
     mesh you pass `elastic=False` as well. The elasto-optic tensor and the
     electrostriction tensors `m` and `q` work on the symmetry-reduced mesh,
-    and only `M` and `Q` are left out there. If one of the two linear
+    and only `M` and `Q` are left out there. This holds for norm-conserving
+    and ultrasoft datasets. With a PAW dataset the symmetry-reduced mesh gives
+    an error for all of them, for the reason the Raman page gives: on PAW
+    silicon $\partial\varepsilon/\partial x$ has a relative error of 6.5e-4
+    there. So with PAW you run the whole mesh with `nosym`. If one of the two linear
     responses under the calculation does not converge, the code gives an error
     instead of using it.
 

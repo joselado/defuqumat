@@ -25,7 +25,11 @@ from typing import Any
 __all__ = ["Card", "PwInput", "read_pw_input", "parse_pw_input"]
 
 #: Card names pw.x understands. Anything else on a bare line is an error rather
-#: than silently ignored data.
+#: than silently ignored data. A name here is *parsed*, which is not the same as
+#: read: ``ATOMIC_FORCES``, ``CONSTRAINTS`` and ``TOTAL_CHARGE`` change the
+#: physics and nothing consumes them, so ``build_system`` refuses them when they
+#: ask for something (``builder._refuse_unconsumed_cards``, audit 2026-11-20b
+#: #5), and its docstring says why the other unconsumed ones are safe.
 CARD_NAMES = frozenset(
     {
         "ATOMIC_SPECIES",
@@ -314,6 +318,37 @@ def _refuse_leftover(text: str) -> None:
 _LOGICAL_TRUE = {".true.", ".t.", "true", "t", ".t"}
 _LOGICAL_FALSE = {".false.", ".f.", "false", "f", ".f"}
 
+#: The same rule for a token that starts with a period: the period, then a
+#: leading part of ``true`` or ``false``, then an optional closing period. So
+#: ``.true``, ``.tru.`` and ``.false`` are the logicals gfortran reads them as;
+#: they stayed the *strings* ``'.true'`` and ``'.false'``, which
+#: ``builder._logical`` read as false and ``bool()`` as true (audit 2026-11-20b
+#: #16). Narrower than Fortran's "then anything", so an undelimited string such
+#: as ``.tmp`` is not taken for a logical, and a number such as ``.02`` never is.
+_PERIOD_LOGICAL = re.compile(
+    r"\.(?:(?P<true>t(?:r(?:ue?)?)?)|f(?:a(?:l(?:se?)?)?)?)\.?"
+)
+
+
+def fortran_logical(token) -> bool | None:
+    """A Fortran logical spelling as a ``bool``, or ``None`` if it is not one.
+
+    ``True`` and ``False`` themselves come back as they are. The spellings are
+    :data:`_LOGICAL_TRUE`, :data:`_LOGICAL_FALSE` and :data:`_PERIOD_LOGICAL`,
+    in any case.
+    """
+    if isinstance(token, bool):
+        return token
+    lowered = str(token).strip().lower()
+    if lowered in _LOGICAL_TRUE:
+        return True
+    if lowered in _LOGICAL_FALSE:
+        return False
+    match = _PERIOD_LOGICAL.fullmatch(lowered)
+    if match is None:
+        return None
+    return match.group("true") is not None
+
 
 def fortran_float(token: str) -> float:
     """A Fortran real literal as a Python float: ``1.d-8``, ``2.5D+3``, ``4.3``.
@@ -328,11 +363,9 @@ def _convert(token: str) -> Any:
     """Fortran literal -> Python value."""
     if token[:1] in "'\"" and token[:1] == token[-1:]:
         return token[1:-1]
-    lowered = token.lower()
-    if lowered in _LOGICAL_TRUE:
-        return True
-    if lowered in _LOGICAL_FALSE:
-        return False
+    logical = fortran_logical(token)
+    if logical is not None:
+        return logical
     # Fortran double-precision exponents: 1.d-8, 2.5D+3
     numeric = re.sub(r"[dD]([-+]?\d)", r"e\1", token)
     try:

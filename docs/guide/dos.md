@@ -466,11 +466,19 @@ diagonalize.
 
     The tetrahedron schemes need an automatic k-mesh. If you do not give `grid`
     and the SCF used an explicit list of k-points, tetrahedra give an error,
-    because a list of points carries no tetrahedra.
+    because a list of points carries no tetrahedra. They also need the k-points
+    that the symmetry of the run keeps of that mesh, as `grid=` builds them. A
+    set of k-points you build yourself and pass as `kpoints=`, or give to
+    `with_kpoints`, gives an error if it is another set. For example, the
+    whole mesh on a run with symmetry gives an error, and for the whole mesh you
+    set `nosym = .true.`. This is the check that `pw.x` makes too.
 
     A noncollinear run is symmetrized, with the spin rotated together with the
     orbitals. A spin-orbit run (`lspinorb`) is symmetrized too when it is not
-    magnetic. A magnetic spin-orbit run with symmetry gives an error. For it you
+    magnetic. This holds also for a crystal with no symmetry but the identity,
+    where time reversal halves the k-mesh. Then each $m_j$ column is averaged
+    with its $-m_j$ partner, as `projwfc.x` does. A magnetic spin-orbit run
+    with symmetry gives an error. For it you
     run with `nosym = .true.` and the full k-mesh, which is the same physics, or
     pass `symmetrize=False`.
 
@@ -492,7 +500,7 @@ diagonalize.
     because their start vectors or their operator need the overlap $S$ in another way,
     and the code gives an error. The
     KPM traces also give an error for `K_POINTS gamma` (the half sphere of plane
-    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. The spin DOS is not a scalar: it turns with the crystal as an axial vector. So `spin_resolved=True` runs on the whole grid of k-points, and it costs more on a cell with symmetry. If the
+    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. The spin DOS is not a scalar: it turns with the crystal as an axial vector. So `spin_resolved=True` runs on the whole grid of k-points, and it costs more on a cell with symmetry. The projected and local DOS and the conductivity by KPM do the same. A list of k-points (`K_POINTS crystal` or `tpiba`, or `kpoints=`) does not say which grid it came from. So for these four traces the list must be a whole grid. This means equal weights on every point of an $n_1 \times n_2 \times n_3$ mesh, shifted or not. Any other list gives an error, because it may be a symmetry-reduced wedge. This also gives an error for a list that is not a wedge, for example a few chosen points. On zincblende SeI with spin-orbit coupling, the wedge written as a list gave a spin DOS of 0.035 states/Ry, where it is zero. If the
     interval does not hold the whole spectrum, a moment grows above one and the
     code gives an error that says so, instead of a wrong DOS. The same holds for
     the projected, local and unfolded DOS by KPM. The local DOS is the smooth

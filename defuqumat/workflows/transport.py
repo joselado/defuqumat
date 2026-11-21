@@ -308,7 +308,7 @@ def run_vertical_transport(
     tip, tip_notes = _tip_assembly(
         tip_orbital, used, result, exit_axis, float(exit_height), points,
         grid_energies, tip_kappa, tip_frame, states, bool(tip_channels),
-        wedge=group is not None, match_height=match_height)
+        wedge=group is not None, match_height=match_height, pseudos=pseudos)
 
     # The store is handed over as it is -- a device array or a host one -- and
     # read one k-point at a time; converting it here would copy every k-point
@@ -379,7 +379,7 @@ def run_vertical_transport(
 
 def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
                   energies, tip_kappa, frame, states, channel_maps, *,
-                  wedge=False, match_height=None):
+                  wedge=False, match_height=None, pseudos=()):
     """``(TipAssembly or None, notes)``: the tip orbital, ready to assemble.
 
     ``None`` for the point tip, which then takes P66's branch unchanged. The
@@ -388,6 +388,10 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
     factor each; a complex channel on a symmetry-reduced k-set, since the
     completion drops the time-reversed operations that would carry it to its
     conjugate (``T_-k(C) = T_k(C^*)``); and no plateau to take ``kappa`` from.
+    A matching plane inside an augmentation sphere of ``pseudos`` is refused by
+    :func:`_refuse_an_augmented_plane`'s rule: the state folded there is the
+    pseudo-wavefunction, and the continuation above it leaves out the
+    projectors and ``Q_ij`` that still act there.
     """
     orbital = TipOrbital.resolve(spec)
     if orbital.is_point and match_height is None:
@@ -458,7 +462,10 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
         match = _matching_plane(system, exit_axis, exit_height, points,
                                 float(match_height), side, plateau, energies,
                                 kappa)
-        # the planar average the WKB continuation decays through; without a
+        _refuse_an_augmented_plane(system, pseudos, exit_axis,
+                                   (float(match_height),), "the matching plane")
+        # the planar average the continuation decays through (the WKB exponent,
+        # without its amplitude factor: continued_components); without a
         # plateau (tip_kappa in a field) the vacuum is taken as flat
         if notes.get("kappa_source") == "plateau":
             match["profile"] = vacuum_level(system, result.potential,
@@ -521,12 +528,22 @@ def _turned_tips(tip, rotations, cell, npts):
     shells. Returns ``None`` when the tip is the same in every image (``s``,
     ``pz``, the incoherent ``pxy``): ``sum_c c c^dagger`` is then invariant and
     nothing has to be sampled per point.
+
+    **With per-channel maps** (``tip.channel_maps``) the test is made on each
+    channel, ``c c^dagger`` for every ``c``, because the sum being invariant
+    says nothing about one channel: a C3 or C4 turn takes ``px`` into a
+    combination of ``px`` and ``py``, so an unturned ``pxy`` would return each
+    channel map averaged over the group, half the total each (audit
+    2026-11-20 #4 and #5). The total and the incoherent map are the same
+    either way.
     """
     basis = tip.orbital.basis(full_shells=True)
     base = tip.orbital.coefficients(tip.kappa, basis)       # (nE, nc, nb)
     at = np.asarray(cell.at, dtype=float)
     frame = np.asarray(tip.frame, dtype=float)
-    density = np.einsum("eca,ecb->eab", base, base.conj())
+    # ``(nE, nc, nb, nb)`` per channel, or ``(nE, nb, nb)`` summed over them
+    pattern = "eca,ecb->ecab" if tip.channel_maps else "eca,ecb->eab"
+    density = np.einsum(pattern, base, base.conj())
     turned, same = [], True
     for operation in np.asarray(rotations, dtype=float):
         cartesian = np.linalg.inv(at) @ operation @ at
@@ -534,14 +551,15 @@ def _turned_tips(tip, rotations, cell, npts):
         representation = rotation_representation(basis, rotation)
         image = np.einsum("ab,ecb->eca", representation, base)
         turned.append(image)
-        moved = np.einsum("eca,ecb->eab", image, image.conj())
+        moved = np.einsum(pattern, image, image.conj())
         same = same and np.allclose(moved, density, rtol=1e-10,
                                     atol=1e-12 * max(1.0, np.abs(density).max()))
     if same:
         return None
-    per_point = np.concatenate(
-        [np.repeat(image[:, None], npts, axis=1) for image in turned], axis=1)
-    return tip.with_coefficients(per_point, basis)
+    # ``(nE, n_ops, nc, nb)``: the image points are operation-major, ``npts``
+    # to an operation, and :meth:`TipAssembly.at_points` reads them that way
+    return tip.with_coefficients(np.stack(turned, axis=1), basis,
+                                 points_per_image=int(npts))
 
 
 def run_momentum_transport(
@@ -628,7 +646,9 @@ def run_momentum_transport(
             resolution -- and it is built **whole** rather than reduced, for
             the reason :func:`whole_grid` gives.
         k_batch: the band solve's batching dial. The assembly here allocates
-            only ``(nk, nbnd, nbnd)``, so it needs no bound of its own.
+            only ``(nk, nbnd, nbnd)`` per plane, ``nb^2`` of them with a tip
+            orbital of ``nb`` basis orbitals, so it needs no bound of its
+            own.
         calculation: the SCF's own :class:`~defuqumat.scf.driver.Calculation`,
             used on its own k-set or moved to ``kpoints`` with ``at_kpoints``
             rather than a second one built beside it
@@ -709,7 +729,7 @@ def run_momentum_transport(
     tip, tip_notes = _tip_assembly(
         tip_orbital, used, result, exit_axis, float(exit_height), probe,
         grid_energies, tip_kappa, tip_frame, states, False,
-        match_height=match_height)
+        match_height=match_height, pseudos=pseudos)
 
     columns, extras = _assemble_momentum(
         calculation, wavefunctions, eigenvalues,
@@ -1233,8 +1253,9 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
                         weights_e = tip.coefficients[ie]
                         for ic in range(tip.nchannels):
                             if tip.per_point:
-                                combined = np.einsum("pb,bsnp->snp",
-                                                     weights_e[here, ic], sampled)
+                                combined = np.einsum(
+                                    "pb,bsnp->snp", tip.at_points(ie, ic, here),
+                                    sampled)
                             else:
                                 combined = np.einsum("b,bsnp->snp",
                                                      weights_e[ic], sampled)
@@ -1619,7 +1640,15 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
     the map away analytically. What is allocated is ``(nk, nbnd, nbnd)`` per
     plane, and the energy loop is free on top of it -- the overlaps do not
     depend on ``E`` and only the per-state weight does, which is the same
-    observation the map's docstring makes. **The height axis is free in the same
+    observation the map's docstring makes. **With a tip orbital** the energy
+    enters the tip plane's Gram matrix too, through the coefficients ``C_b
+    kappa(E)^-l`` of each channel, and only there: the plane holds one Gram
+    matrix per pair of basis orbitals, ``(nb, nb, nk, nbnd, nbnd)``, and each
+    channel's at each energy is the contraction ``sum_bb' C_b^* C_b' G_bb'``,
+    made when it is used (audit 2026-11-20 #7). Before, one Gram matrix was
+    built and stored per energy and per channel, ``(nE, nc, nk, nbnd,
+    nbnd)``, 3.3 GB at 21 energies of a ``p`` tip on 900 k-points and 60
+    bands. **The height axis is free in the same
     sense and for a different reason**: the *bands* do not depend on where the
     tip is, so a sweep pays one extra Gram matrix per height against a whole
     band solve.
@@ -1660,10 +1689,15 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
     plane_scale = surface_area(used.cell, exit_axis) / float(used.cell.volume)
 
     def tip_grams_at(block_of, plane_height):
-        """``(nE, n_channels, nk, nbnd, nbnd)``: the tip plane's Gram matrix
-        of each channel, from the coefficients multiplied by ``D_b`` (P179)."""
-        ne, nc = tip.coefficients.shape[0], tip.nchannels
-        out = np.empty((ne, nc, nk, nbnd, nbnd), dtype=complex)
+        """``(nb, nb, nk, nbnd, nbnd)``: the tip plane's Gram matrix of each
+        pair of basis orbitals, ``G_bb' = scale (D_b psi)^dagger (D_b' psi)``
+        on the plane, from the coefficients multiplied by ``D_b`` (P179). A
+        channel's is :func:`_channel_gram` of it. One product of the stacked
+        ``(nb nbnd, npol, ng)`` array gives every pair, the spin acceptance
+        included, so this is :func:`folded_gram` exactly as one channel takes
+        it."""
+        nb = len(tip.basis)
+        out = np.empty((nb, nb, nk, nbnd, nbnd), dtype=complex)
         for ik in range(nk):
             block = np.asarray(block_of(ik)).reshape((nbnd, npol, -1))
             if tip.match is not None:
@@ -1706,13 +1740,19 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                         miller[ik], plane_height, exit_axis, npol=npol,
                         mask=mask[ik])[0]
                     for name in tip.basis])            # (nb, nbnd, npol, ng)
-            for ie in range(ne):
-                for ic in range(nc):
-                    combined = np.einsum("b,bnsg->nsg", tip.coefficients[ie, ic],
-                                         folded)
-                    out[ie, ic, ik] = folded_gram(combined, plane_scale,
-                                                  npol=npol, projector=projector)
+            stacked = folded.reshape((nb * nbnd,) + folded.shape[2:])
+            gram = folded_gram(stacked, plane_scale, npol=npol,
+                               projector=projector)
+            out[:, :, ik] = gram.reshape((nb, nbnd, nb, nbnd)).transpose(
+                0, 2, 1, 3)
         return out
+
+    def check(gram, hermiticity, least):
+        """A Gram matrix is Hermitian and positive: the running diagnostics."""
+        hermiticity = max(hermiticity, float(
+            np.abs(gram - np.conj(np.swapaxes(gram, 1, 2))).max()))
+        hermitian = 0.5 * (gram + np.conj(np.swapaxes(gram, 1, 2)))
+        return hermiticity, min(least, float(np.linalg.eigvalsh(hermitian).min()))
 
     for ispin in range(nspin):
         scale = 1.0 if channel_scale is None else channel_scale[ispin]
@@ -1732,13 +1772,11 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                 tip_gram = gram_at(block_of, float(plane_height))
                 checked = (exit_gram, tip_gram)
             else:
-                tip_grams = tip_grams_at(block_of, float(plane_height))
-                checked = (exit_gram, *tip_grams.reshape((-1,) + exit_gram.shape))
+                basis_grams = tip_grams_at(block_of, float(plane_height))
+                # each channel's Gram matrix is checked where it is made, below
+                checked = (exit_gram,)
             for gram in checked:
-                hermiticity = max(hermiticity, float(
-                    np.abs(gram - np.conj(np.swapaxes(gram, 1, 2))).max()))
-                hermitian = 0.5 * (gram + np.conj(np.swapaxes(gram, 1, 2)))
-                least = min(least, float(np.linalg.eigvalsh(hermitian).min()))
+                hermiticity, least = check(gram, hermiticity, least)
 
             for ie, energy in enumerate(energies):
                 weights = amplitude_weights(
@@ -1748,7 +1786,10 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                     # One trace per incoherent channel; ``bare`` does not see
                     # the tip and is taken once.
                     for ic in range(tip.nchannels):
-                        here = momentum_weights(exit_gram, tip_grams[ie, ic],
+                        tip_gram = _channel_gram(basis_grams,
+                                                 tip.coefficients[ie, ic])
+                        hermiticity, least = check(tip_gram, hermiticity, least)
+                        here = momentum_weights(exit_gram, tip_gram,
                                                 kweights, np.real(weights),
                                                 eigenvalues=eigenvalues[ispin],
                                                 tol=degeneracy_tol)
@@ -1775,6 +1816,20 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
     }
     return columns, {"least_eigenvalue": float(least),
                      "hermiticity": float(hermiticity), "notes": notes}
+
+
+def _channel_gram(basis_grams, coefficients):
+    """``(nk, nbnd, nbnd)``: one channel's tip Gram matrix from the basis ones.
+
+    ``basis_grams`` is ``(nb, nb, nk, nbnd, nbnd)`` with ``G_bb'`` the plane
+    integral of ``(D_b psi)^dagger (D_b' psi)`` and ``coefficients`` the
+    channel's ``(nb,)`` at one energy; the channel ``F = sum_b C_b D_b psi``
+    has ``F^dagger F = sum_bb' C_b^* C_b' G_bb'``, bilinear in the folded
+    arrays as :func:`folded_gram` is (audit 2026-11-20 #7).
+    """
+    coefficients = np.asarray(coefficients)
+    return np.einsum("b,c,bcknm->knm", coefficients.conj(), coefficients,
+                     basis_grams, optimize=True)
 
 
 def _top_multiplet_share(eigenvalues, energies, broadening, smearing):

@@ -248,6 +248,346 @@ def test_the_unmeasured_magnetic_regimes_are_refused(extra, words):
         _calculator("lmbj", extra).calculation
 
 
+#: A laterally uniform sheet in a 40 bohr cell. Only the dense grid and the
+#: cell are used: the density, ``tau`` and the potential are laid on them by
+#: hand, so the hold is checked on a tail whose two faces are chosen.
+_SHEET = """&control
+ calculation='scf'
+/
+&system
+ ibrav=6, celldm(1)=4.0, celldm(3)=10.0, nat=1, ntyp=1, ecutwfc=20.0
+/
+&electrons
+/
+ATOMIC_SPECIES
+ H 1.008 H.pbe-hgh.UPF
+ATOMIC_POSITIONS bohr
+ H 0.0 0.0 20.0
+K_POINTS automatic
+ 1 1 1 0 0 0
+"""
+_SHEET_LENGTH = 40.0
+
+
+@lru_cache(maxsize=1)
+def _sheet_grid():
+    calculation = Calculator.from_text(_SHEET, pseudo_dir=PSEUDO, announce=False).calculation
+    cell, dense = calculation.system.cell, calculation.basis.dense
+    n3 = int(dense.grid[2])
+    return cell, dense, np.arange(n3) * _SHEET_LENGTH / n3
+
+
+def _sheet_profile(z, kappa_above, kappa_below, peak=0.1, centre=20.0, a=3.0):
+    """``n(z)`` and ``dn/dz``: ``exp(-2 kappa_above u)`` above, ``exp(-2 kappa_below |u|)`` below.
+
+    ``n0 exp(-(ka + kb) sqrt(u^2 + a^2) - (ka - kb) u)``, summed over the
+    neighbouring images, with ``n0`` putting about ``peak`` at the centre. It is analytic in a strip of half-width ``a``, so its
+    Fourier series is converged on the dense grid to about 1e-13, and the meta
+    potential evaluated on it is a clean tail down to the gate.
+    """
+    n0 = peak * np.exp((kappa_above + kappa_below) * a)
+    n = np.zeros_like(z)
+    dn = np.zeros_like(z)
+    for image in (-1, 0, 1):
+        u = z - centre - image * _SHEET_LENGTH
+        root = np.sqrt(u * u + a * a)
+        f = n0 * np.exp(-(kappa_above + kappa_below) * root - (kappa_above - kappa_below) * u)
+        n += f
+        dn += f * (-(kappa_above + kappa_below) * u / root - (kappa_above - kappa_below))
+    return n, dn
+
+
+def _sheet_tau(n, dn):
+    """``tau`` in Ry: von Weizsaecker plus a third of Thomas-Fermi, any positive ``D``."""
+    return 2.0 * (dn * dn / (8.0 * n) + 0.3 * 0.6 * (3.0 * np.pi ** 2) ** (2.0 / 3.0) * n ** (5.0 / 3.0))
+
+
+def _sheet_potential(channels, monkeypatch=None, functional=None):
+    """``meta_exchange`` on laterally uniform channels; with ``monkeypatch``, the hold off.
+
+    Returns the potential along ``z``, ``(nspin, n3)``.
+    """
+    import jax
+    import defuqumat.xc.mgga as mgga
+    from defuqumat.basis.fft import r_to_g
+    from defuqumat.scf.potential import meta_exchange
+    from defuqumat.xc.functional import resolve_functional
+
+    cell, dense, _ = _sheet_grid()
+    grid = tuple(int(n) for n in dense.grid)
+    rho = jnp.asarray(np.stack([np.broadcast_to(n, grid) for n, _ in channels]))
+    tau = jnp.asarray(np.stack([np.broadcast_to(t, grid) for _, t in channels]))
+    rho_g = jax.vmap(r_to_g, in_axes=(0, None))(rho.astype(jnp.result_type(rho, 1j)),
+                                                dense.fft_index)
+    functional = functional or resolve_functional(["PZ"], "lmbj")
+    if monkeypatch is not None:
+        monkeypatch.setattr(mgga, "hold_vacuum_potential", lambda v, *args, **kwargs: v)
+    try:
+        v, _ = meta_exchange(rho, rho_g, tau, dense, cell, functional)
+    finally:
+        if monkeypatch is not None:
+            monkeypatch.undo()
+    return np.asarray(v)[:, 0, 0, :]
+
+
+def _held_reference(v_raw, rho, per_piece=True):
+    """The hold written out on one channel along ``z``, with plain loops.
+
+    The shell and ``w`` are on ``rho``. With ``per_piece``, the user's rule
+    (audit 2026-11-20 #9 and #10): one mean per connected piece of the shell,
+    and each point takes the mean of the nearest piece. The sheet is uniform
+    in the plane, so a piece is a run of shell points along ``z``, periodic,
+    and every plane of it has the same weight. A tie goes to the piece that
+    starts first. Without it, the one cell mean the hold had before. Returns
+    the held potential and the mean of each piece.
+    """
+    from scipy.special import erf
+
+    from defuqumat.xc.mgga import LMBJ_HOLD_WIDTH, LMBJ_RHO_HOLD
+
+    positive = rho > 0.0
+    weight = np.where(positive, 0.5 * (1.0 + erf(
+        np.log(np.where(positive, rho, LMBJ_RHO_HOLD) / LMBJ_RHO_HOLD) / LMBJ_HOLD_WIDTH)), 0.0)
+    shell = (rho > LMBJ_RHO_HOLD) & (rho < 10.0 * LMBJ_RHO_HOLD)
+    n = len(rho)
+    starts = [k for k in range(n) if shell[k] and not shell[k - 1]]
+    pieces = []
+    for k in starts:
+        piece = []
+        while shell[k % n]:
+            piece.append(k % n)
+            k += 1
+        pieces.append(piece)
+    if not per_piece or len(pieces) < 2:
+        means = [v_raw[shell].mean()]
+        return weight * v_raw + (1.0 - weight) * means[0], means
+    means = [np.mean([v_raw[k] for k in piece]) for piece in pieces]
+    tail = np.empty(n)
+    for k in range(n):
+        distance = [min(min(abs(k - j), n - abs(k - j)) for j in piece) for piece in pieces]
+        tail[k] = means[int(np.argmin(distance))]
+    return weight * v_raw + (1.0 - weight) * tail, means
+
+
+@pytest.mark.parametrize("centre", [20.0, 1.5])
+def test_each_face_of_a_sheet_is_held_at_its_own_tail(monkeypatch, centre):
+    """A sheet whose two faces differ has two tail values (audit 2026-11-20 #9, #10).
+
+    The upper face decays as ``exp(-1.2 z)`` and the lower as ``exp(-2 z)``,
+    the two faces of a slab that differ. With one cell mean both vacua were
+    held at the average of the two faces; with the user's form each face has
+    the mean of its own shell, and each point takes the mean of the nearer
+    face. At ``centre = 1.5`` bohr the sheet sits across the cell boundary, so
+    the faces are found round the periodic wrap.
+    """
+    _, _, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.6, 1.0, centre=centre)
+    channel = [(n, _sheet_tau(n, dn))]
+    held = _sheet_potential(channel)[0]
+    raw = _sheet_potential(channel, monkeypatch)[0]
+    expected, means = _held_reference(raw, n)
+    assert len(means) == 2
+    assert np.abs(held - expected).max() < 1e-12
+    # where each face's tail first falls below 1e-7, two decades under the
+    # shell and w below 1e-3, each vacuum is at its own face's mean
+    u = (z - centre + 0.5 * _SHEET_LENGTH) % _SHEET_LENGTH - 0.5 * _SHEET_LENGTH
+    deep = n < 1e-7
+    above = np.flatnonzero(deep & (u > 0.0))[np.argmin(u[deep & (u > 0.0)])]
+    below = np.flatnonzero(deep & (u < 0.0))[np.argmax(u[deep & (u < 0.0)])]
+    assert abs(held[above] - held[below]) > 5e-3
+    assert np.allclose(sorted([held[above], held[below]]), sorted(means), rtol=0, atol=1e-6)
+    from defuqumat.xc.mgga import hold_faces
+
+    flags = [bool(np.asarray(two)[0]) for two, _ in hold_faces(
+        jnp.broadcast_to(jnp.asarray(n), (1,) + tuple(int(g) for g in _sheet_grid()[1].grid)))]
+    assert flags == [False, False, True]
+
+
+def test_a_symmetric_sheet_is_held_at_the_cell_mean(monkeypatch):
+    """A sheet with two equal faces gives the one cell mean, as before #9 and #10.
+
+    The grid is symmetric under ``z -> 40 - z`` about the sheet, so the two
+    faces' means agree to round-off and the held potential is the old one. The
+    per-face branch is taken (the flag is checked last, so the number is
+    checked first on any code).
+    """
+    _, dense, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.8, 0.8)
+    channel = [(n, _sheet_tau(n, dn))]
+    held = _sheet_potential(channel)[0]
+    raw = _sheet_potential(channel, monkeypatch)[0]
+    expected, _ = _held_reference(raw, n, per_piece=False)
+    _, means = _held_reference(raw, n)
+    assert len(means) == 2 and abs(means[0] - means[1]) < 1e-12
+    assert np.abs(held - expected).max() < 1e-12
+    from defuqumat.xc.mgga import hold_faces
+
+    grid = (1,) + tuple(int(g) for g in dense.grid)
+    assert bool(np.asarray(hold_faces(jnp.broadcast_to(jnp.asarray(n), grid))[2][0])[0])
+
+
+def _box_density(kind, grid=(20, 20, 40), length=(28.0, 28.0, 40.0)):
+    """A density in a box: ``exp(-2 kappa d)`` from a point, a line or a plane, minimum image.
+
+    The molecule is two centres with different decays, one above the other, so
+    the upper and lower halves of its one piece of shell differ. ``'thin'`` has
+    a tail that never falls below 1e-5, so its shell spans the vacuum, and
+    ``'sheet'`` has two faces that decay as ``exp(-0.8 z)`` and ``exp(-1.2 z)``.
+    """
+    axes = [np.arange(g) * (L / g) for g, L in zip(grid, length)]
+    x, y, z = np.meshgrid(*axes, indexing="ij")
+    Lx, Ly, Lz = length
+
+    def apart(a, a0, L):
+        d = (a - a0) % L
+        return np.minimum(d, L - d)
+
+    def tail(d, kappa, peak):
+        return peak * np.exp(-2.0 * kappa * (np.sqrt(d * d + 1.0) - 1.0))
+
+    def r(z0):
+        return np.sqrt(apart(x, 14, Lx) ** 2 + apart(y, 14, Ly) ** 2 + apart(z, z0, Lz) ** 2)
+
+    flat = 0.0 * x
+    if kind == "molecule":
+        return tail(r(18), 0.35, 1e-3) + tail(r(22), 0.25, 1e-3)
+    if kind == "wire":
+        return tail(np.sqrt(apart(y, 14, Ly) ** 2 + apart(z, 20, Lz) ** 2), 0.3, 1e-3)
+    if kind == "thin":
+        return tail(apart(z, 20, Lz), 0.11, 1e-3) + flat
+    if kind == "two sheets":
+        return tail(apart(z, 10, Lz), 0.4, 1e-2) + tail(apart(z, 30, Lz), 0.6, 1e-2) + flat
+    if kind == "sheet":
+        above = ((z - 20) % Lz) < 0.5 * Lz
+        return np.where(above, tail(apart(z, 20, Lz), 0.4, 1e-2),
+                        tail(apart(z, 20, Lz), 0.6, 1e-2)) + flat
+    raise ValueError(kind)
+
+
+@pytest.mark.parametrize("kind, pieces, values", [
+    ("molecule", 1, 1), ("wire", 1, 1), ("thin", 1, 1), ("two sheets", 4, 1), ("sheet", 2, 2),
+])
+def test_a_shell_that_is_not_two_faces_keeps_the_cell_mean(kind, pieces, values):
+    """One piece of shell, or pieces that are not the two faces of one slab, keep the cell mean.
+
+    A molecule in a box whose upper and lower halves differ, a wire, and a
+    thin vacuum the shell spans are each one piece, so the user's form is the
+    cell mean exactly. Two different sheets in one cell are four pieces that
+    are not two faces: they share the cell mean, and ``hold_pieces`` counts four
+    pieces against one value, which is what the SCF warns about. ``v`` grows
+    along ``z``, so any split of a piece along ``z`` would show.
+    """
+    from defuqumat.xc.mgga import hold_vacuum_potential
+
+    rho = _box_density(kind)[None]
+    z = np.arange(rho.shape[-1])
+    v = 0.3 + 0.002 * z[None, None, None, :] + 0.01 * np.cos(np.arange(rho.shape[1]))[None, :, None, None]
+    v = np.broadcast_to(v, rho.shape)
+    held = np.asarray(hold_vacuum_potential(jnp.asarray(v), jnp.asarray(rho[0])))
+    if kind != "sheet":
+        shell = (rho > 1e-5) & (rho < 1e-4)
+        assert shell.sum() > 20
+        from scipy.special import erf
+
+        positive = rho > 0.0
+        weight = 0.5 * (1.0 + erf(np.log(np.where(positive, rho, 1e-5) / 1e-5) / (0.5 * np.log(10.0))))
+        expected = weight * v + (1.0 - weight) * v[shell].mean()
+        assert np.abs(held - expected).max() < 1e-14
+    from defuqumat.xc.mgga import hold_faces, hold_pieces
+
+    flags = [bool(np.asarray(two)[0]) for two, _ in hold_faces(jnp.asarray(rho))]
+    assert flags == [False, False, values == 2]
+    assert hold_pieces(rho) == [(pieces, values)]
+
+
+def test_separate_pieces_that_share_a_mean_are_warned_about(monkeypatch):
+    """The SCF says where pieces of the shell shared one tail value; one piece or two faces are quiet."""
+    import warnings
+
+    import defuqumat.xc.mgga as mgga
+    from defuqumat.scf.potential import warn_about_the_vacuum_hold
+
+    with pytest.warns(RuntimeWarning, match="local mBJ.*4 separate pieces"):
+        warn_about_the_vacuum_hold(_box_density("two sheets")[None])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for kind in ("molecule", "sheet"):
+            warn_about_the_vacuum_hold(_box_density(kind)[None])
+        # (up, down) is held on 2 n_sigma: half of the sheet in each channel
+        warn_about_the_vacuum_hold(0.5 * np.stack([_box_density("sheet")] * 2))
+    # and the SCF calls it: here with the count patched, on silicon
+    monkeypatch.setattr(mgga, "hold_pieces", lambda rho, *args: [(3, 1)] * len(rho))
+    with pytest.warns(RuntimeWarning, match="local mBJ.*3 separate pieces"):
+        assert _calculator().get_scf().converged
+
+
+def test_a_polarized_channel_is_held_on_its_own_density(monkeypatch):
+    """Each channel's shell and weight are on ``2 n_sigma`` (audit 2026-11-20 #47).
+
+    The channel potential is evaluated on the channel density, so where the
+    minority channel is on its own tail the total can still be well inside
+    the sheet. Here the minority carries 1e-4 of the majority: where the total
+    is between 1e-3 and 1e-2 the minority's ``2 n_sigma`` is below 2e-6, its
+    weight below 0.03, and its potential has to be held there. On the total's
+    shell it was left as evaluated. Since #9 and #10 the faces are per channel
+    too: the majority's shell is the sheet's two faces, each with its own mean,
+    and the minority's, which never reaches 1e-4, is one piece with one mean.
+    """
+    _, _, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.6, 1.0, peak=0.3)
+    ratio = 1e-4
+    channels = [(f * n, _sheet_tau(f * n, f * dn)) for f in (1.0 / (1.0 + ratio), ratio / (1.0 + ratio))]
+    held = _sheet_potential(channels)
+    raw = _sheet_potential(channels, monkeypatch)
+    for s, (rho, _) in enumerate(channels):
+        assert ((2.0 * rho > 1e-5) & (2.0 * rho < 1e-4)).sum() >= 3
+        expected, means = _held_reference(raw[s], 2.0 * rho)
+        assert len(means) == (2, 1)[s]
+        assert np.abs(held[s] - expected).max() < 1e-12
+    inside = (n > 1e-3) & (2.0 * channels[1][0] < 2e-6)
+    assert inside.sum() >= 4
+    assert np.abs(held[1][inside] - raw[1][inside]).min() > 1e-3
+
+
+def test_an_unpolarized_pair_of_channels_is_held_as_one_channel():
+    """``(n/2, n/2)`` is ``n`` at ``nspin = 1``, on a sheet whose vacuum the hold reaches.
+
+    The SCF identity above runs on bulk silicon, where no point is in the
+    shell and the hold never acts, so it cannot see the hold.
+    """
+    _, _, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.6, 1.0)
+    tau = _sheet_tau(n, dn)
+    assert ((n > 1e-5) & (n < 1e-4)).sum() >= 8
+    one = _sheet_potential([(n, tau)])
+    two = _sheet_potential([(0.5 * n, 0.5 * tau), (0.5 * n, 0.5 * tau)])
+    assert np.abs(two - one[0][None]).max() < 1e-12
+
+
+def test_a_run_without_paw_never_reads_c_for_the_spheres(monkeypatch):
+    """Only the PAW spheres take ``c`` (audit 2026-11-20 #24).
+
+    ``onecenter`` returns before reading its ``c`` when no species is PAW, so
+    the SCF must not fetch ``c`` for it: the fetch blocks until the whole
+    potential is built, before the Hamiltonian is dispatched. Measured on
+    si8 under ``lmbj``, ten such reads in a nine-iteration SCF, and 3.3 per
+    cent of the wall time on four cores.
+    """
+    import defuqumat.scf.driver as driver
+
+    asked = []
+    original = driver._meta_c
+
+    def spy(potential, is_meta=True):
+        asked.append(is_meta)
+        return original(potential, is_meta)
+
+    monkeypatch.setattr(driver, "_meta_c", spy)
+    result = _calculator().get_scf()
+    assert result.converged
+    assert asked and not any(asked)
+
+
 def test_the_vacuum_potential_is_held_at_the_clean_tails_value():
     """Below ``n = 1e-5`` the potential becomes its mean over ``1e-5 < n < 1e-4``.
 

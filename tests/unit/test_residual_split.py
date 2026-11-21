@@ -233,7 +233,9 @@ def test_the_species_of_a_mixed_cell_are_summed_together():
         (first, second),
         (first + np.array([[[3.0]], [[0.0]]]), second + np.array([[[4.0]], [[0.0]]])),
     )
-    assert total == pytest.approx(5.0)
+    # Two channels are (up, down), and the total is their (charge, moment)
+    # norm, sqrt(2) times the (up, down) one (audit 2026-11-20 #15).
+    assert total == pytest.approx(5.0 * np.sqrt(2))
 
 
 def test_a_collinear_becsum_still_reports_its_magnetic_half():
@@ -242,8 +244,35 @@ def test_a_collinear_becsum_still_reports_its_magnetic_half():
     after = before.copy()
     after[1] = 1.0
     total, magnetic = becsum_residual((before,), (after,))
-    assert total == pytest.approx(np.sqrt(2))
+    assert total == pytest.approx(2.0)
     assert magnetic == pytest.approx(np.sqrt(2))
+
+
+def test_a_collinear_becsum_total_holds_its_magnetic_part():
+    """At ``nspin = 2`` the total and its magnetic part are in one basis (audit 2026-11-20 #15).
+
+    A pure moment change, ``d_up = -d_down``, is all magnetic, so the part
+    equals the whole. The total used to be the ``(up, down)`` norm, and the
+    part read ``sqrt(2)`` times the whole. An equal change in both channels is
+    all charge, and the four-component run of the same collinear change, ``(n,
+    0, 0, m_z)``, gives the same pair.
+    """
+    before = np.zeros((2, 1, 2, 2))
+    step = np.arange(1.0, 5.0).reshape(1, 2, 2)
+    moment = before + np.concatenate([step, -step])[:, None]
+    total, magnetic = becsum_residual((before,), (moment,))
+    assert magnetic <= total * (1.0 + 1e-14)
+    assert magnetic == pytest.approx(total)
+
+    charge = before + np.concatenate([step, step])[:, None]
+    total, magnetic = becsum_residual((before,), (charge,))
+    assert magnetic == 0.0 and total == pytest.approx(2.0 * np.sqrt(np.sum(step**2)))
+
+    up, down = 0.3 * step, -0.7 * step
+    collinear = becsum_residual((before,), (before + np.concatenate([up, down])[:, None],))
+    four = np.zeros((4, 1, 2, 2))
+    four[0], four[3] = up + down, up - down
+    assert collinear == pytest.approx(becsum_residual((np.zeros_like(four),), (four,)))
 
 
 def test_a_species_with_no_augmentation_is_skipped_rather_than_converted():

@@ -57,7 +57,7 @@ __all__ = ["Potential", "v_of_rho", "hartree", "exchange_correlation",
            "gradient_correction", "meta_exchange", "scf_accuracy", "scf_accuracy_terms", "scf_accuracy_split",
            "tau_accuracy", "rho_ddot_vector", "tau_ddot_vector", "ns_ddot_vector",
            "total_charge",
-           "with_core", "as_potential_components",
+           "with_core", "as_potential_components", "warn_about_the_vacuum_hold",
            "DEFAULT_FUNCTIONAL"]
 
 #: What a calculation uses when nothing names a functional. QE has no such
@@ -457,7 +457,14 @@ def _noncollinear_xc(density: jnp.ndarray, cell: Cell, functional: Functional):
     return v, energy
 
 
-def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | None:
+#: ``eps12`` in ``compute_ux``: an atom seeds the axis when ``|m_loc|^2`` exceeds it.
+UX_SEED = 1.0e-12
+#: ``is_parallel`` (``divide_class.f90:2757-2759``): ``|a x b|^2`` below this.
+UX_PARALLEL = 1.0e-6
+
+
+def fixed_quantization_axis(moments: np.ndarray, field=None,
+                            card: bool = False) -> np.ndarray | None:
     """``compute_ux``: a fixed axis to take the sign of the magnetization along.
 
     A gradient-corrected noncollinear run resolves the density onto the local
@@ -472,6 +479,25 @@ def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | Non
     parallel (QE's ``lsign = .FALSE.``), in which case ``|m|`` is used and the
     kink is accepted -- there is no single axis to take a sign along.
 
+    **The test is ``compute_ux``'s, literally** (AUDIT-2026-11-20b #4).
+    ``moments`` is ``m_loc`` as ``setup.f90`` builds it: ``starting_magnetization``
+    in ``pw.x``'s units, after the ``zv`` division and the clamp
+    (:attr:`~defuqumat.scf.driver.Calculation.starting_magnetization`), times the
+    direction of ``angle1``/``angle2``. The first atom with ``|m|^2 > 1e-12`` is
+    the seed, and every later atom must have ``|ux x m|^2 < 1e-6`` on the
+    **unnormalized** vectors (``is_parallel``). That bound depends on the
+    lengths: two moments of 0.1 count as parallel up to ``sin(theta) = 0.1``
+    (5.7 degrees from parallel or antiparallel), two of 0.5 up to 4e-3, and two
+    of 0.01 at any angle. It is ``pw.x``'s rule and is kept as one, so that a
+    ``'kubler'`` run takes the branch ``pw.x`` takes. The test used to be on
+    unit vectors to 1e-6, which gave ``|m|`` and its kinks to a cant ``pw.x``
+    takes signed.
+
+    ``card``: the moments come from a ``STARTING_MOMENTS`` card, which ``pw.x``
+    does not have. They are in Bohr magnetons, so there is no ``pw.x`` scale to
+    copy, and they keep the test on unit vectors to 1e-6, seeded on
+    ``|m| > 1e-12``: a card is parallel only when it says so.
+
     ``field`` is the uniform ``B_field``, read only when **no** atom has a
     starting moment. That run is magnetic because of the field alone
     (:func:`~defuqumat.system.builder.is_magnetic`), which ``compute_ux`` never
@@ -482,18 +508,27 @@ def fixed_quantization_axis(moments: np.ndarray, field=None) -> np.ndarray | Non
     """
     moments = np.asarray(moments, dtype=float)
     norms = np.linalg.norm(moments, axis=1)
-    nonzero = np.flatnonzero(norms > 1.0e-12)
+    if card:
+        nonzero = np.flatnonzero(norms > 1.0e-12)
+    else:
+        nonzero = np.flatnonzero(np.sum(moments * moments, axis=1) > UX_SEED)
     if not len(nonzero):
         if field is None:
             return None
         field = np.asarray(field, dtype=float).reshape(3)
         strength = float(np.linalg.norm(field))
         return field / strength if strength > 1.0e-12 else None
-    axis = moments[nonzero[0]] / norms[nonzero[0]]
+    seed = moments[nonzero[0]]
+    axis = seed / norms[nonzero[0]]
     for index in nonzero[1:]:
-        direction = moments[index] / norms[index]
-        if np.linalg.norm(np.cross(axis, direction)) > 1.0e-6:
-            return None
+        if card:
+            direction = moments[index] / norms[index]
+            if np.linalg.norm(np.cross(axis, direction)) > 1.0e-6:
+                return None
+        else:
+            cross = np.cross(seed, moments[index])
+            if not float(np.dot(cross, cross)) < UX_PARALLEL:
+                return None
     return axis
 
 
@@ -925,24 +960,77 @@ def meta_exchange(
     # when unpolarized and their sum when not. Three FFTs per potential build.
     total_grad = 2.0 * grad[0] if nspin == 1 else grad[0] + grad[1]
 
-    # ``c`` is an average over the cell of the **total** density's ratio, so it
-    # is one number for the whole calculation and not one per channel -- and it
-    # is the total, not the majority channel: Tran and Blaha's Eq. (3) has no
-    # spin index on it, and giving each channel its own ``c`` would make the two
-    # potentials belong to different functionals.
+    # ``c`` is built from the **total** density's ratio, not one per channel and
+    # not the majority channel's: Tran and Blaha's Eq. (3) has no spin index on
+    # it, and giving each channel its own ``c`` would make the two potentials
+    # belong to different functionals. For TB09 and BJ06 it is the cell
+    # average, one number for the whole calculation; under the local mBJ it is
+    # a field on the grid, the Gaussian average of that ratio, and the same
+    # field enters both channels.
     c = functional.meta_c(total_r, total_grad, gvectors, cell)
 
     v = jax.vmap(functional.meta_exchange_potential, in_axes=(0, 0, 0, 0, None))(
         channels_r, sigma, lap, channels_tau / E2, c
     )
     if functional.is_local_meta:
-        # Below n = 1e-5 the local mBJ holds its potential at the clean vacuum
-        # tail's value: the plane-wave density's noise floor would otherwise
-        # set the vacuum potential (P182, the vacuum check).
+        # Below about 1e-4, centred on 1e-5, the local mBJ blends its potential
+        # into the clean vacuum tail's value: the plane-wave density's noise
+        # floor would otherwise set the vacuum potential (P182, the vacuum
+        # check). Each channel on its own density doubled, the density its
+        # exchange is evaluated at (audit 2026-11-20 #47); at nspin = 1 that is
+        # the total, bit for bit. The tail value is one mean per face when the
+        # shell is the two faces of one slab, and the cell mean otherwise
+        # (audit 2026-11-20 #9 and #10); the faces are found inside the jit,
+        # and warn_about_the_vacuum_hold says after the SCF where pieces shared
+        # a mean.
         from defuqumat.xc.mgga import hold_vacuum_potential
 
-        v = hold_vacuum_potential(v, total_r)
+        v = hold_vacuum_potential(v, 2.0 * channels_r)
     return v, c
+
+
+def warn_about_the_vacuum_hold(density_r, rho_core=None) -> None:
+    """After a local mBJ SCF, warn where separate pieces of the shell shared one tail value.
+
+    Args:
+        density_r: the converged density, ``(nspin, ...)`` as :func:`meta_exchange`
+            takes it, without the core charge.
+        rho_core: the core charge, added as :func:`v_of_rho` adds it.
+
+    The density the hold sees is rebuilt on the host (each channel's
+    ``2 n_sigma``, core included) and handed to
+    :func:`defuqumat.xc.mgga.hold_pieces`. One read of the density per SCF,
+    after the loop, so no iteration waits for it.
+    """
+    import warnings
+
+    from defuqumat.xc.mgga import LMBJ_RHO_HOLD, hold_pieces
+
+    density = np.real(np.asarray(density_r))
+    nspin = density.shape[0]
+    if nspin > 2:
+        return
+    if rho_core is not None:
+        density = density + np.asarray(with_core(jnp.real(jnp.asarray(rho_core)), nspin))
+    doubled = density if nspin == 1 else 2.0 * density
+    for s, (pieces, values) in enumerate(hold_pieces(doubled)):
+        if pieces <= values:
+            continue
+        channel = "" if nspin == 1 else f" of the {('up', 'down')[s]} channel"
+        warnings.warn(
+            f"the local mBJ (input_dft = 'lmbj') held the vacuum{channel} at "
+            f"{values} tail value{'s' if values > 1 else ''}, but the shell "
+            f"{LMBJ_RHO_HOLD:g} < n < {10 * LMBJ_RHO_HOLD:g} has {pieces} separate "
+            "pieces. A mean per face is taken only for the two faces of one slab "
+            "(the shell in two runs of planes along one axis, one gap between them "
+            "all vacuum and the other all matter); here some of the pieces share a "
+            "mean, so a vacuum next to a piece whose tail differs from the others is "
+            "held at the shared value. Two slabs in one cell, a molecule above a slab, "
+            "a closed cavity and a slab whose surface is not spanned by two of the "
+            "cell vectors are such cells",
+            RuntimeWarning,
+            stacklevel=3,
+        )
 
 
 def _noncollinear_meta_exchange_grad_m(rho_r, gvectors, cell, functional,

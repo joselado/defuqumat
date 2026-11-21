@@ -1,0 +1,322 @@
+diff --git a/defuqumat/scf/driver.py b/defuqumat/scf/driver.py
+index 0c9a6955..c964bbf1 100644
+--- a/defuqumat/scf/driver.py
++++ b/defuqumat/scf/driver.py
+@@ -195,6 +195,7 @@ from defuqumat.solvers import get_eigensolver
+ from defuqumat.solvers.davidson import (
+     ETHR_MIN,
+     MAX_ITERATIONS,
++    SCF_STRAGGLERS,
+     empty_band_threshold,
+     starting_vectors,
+     degeneracy_tolerance,
+@@ -6824,7 +6825,7 @@ class Calculation:
+         return jnp.concatenate([up, down], axis=1)
+ 
+     def diagonalize(self, hamiltonians, nbnd: int, psi0=None, ethr=None,
+-                    return_steps: bool = False):
++                    return_steps: bool = False, stragglers: int = 0):
+         """Solve at every k-point of every channel.
+ 
+         Returns ``(eigenvalues, wavefunctions)`` shaped ``(nspin, nk, nbnd)``
+@@ -6844,10 +6845,16 @@ class Calculation:
+         steps each solve took, and how many bands it left unsettled. They are
+         the solver's own loop counters, so nothing extra is computed and nothing
+         is read on the host inside the loop.
++
++        ``stragglers`` is how many unsettled bands a ``cegterg`` call may hand
++        on (``c_bands.f90``'s exit test): :data:`~defuqumat.solvers.davidson.SCF_STRAGGLERS`
++        from ``run_scf`` and 0 from every other caller (audit 2026-11-20b #9).
+         """
+         extra = {} if self.david is None else {"david": self.david}
+         if return_steps:
+             extra["return_steps"] = True
++        if stragglers:
++            extra["stragglers"] = stragglers
+         rank = 0 if ethr is None else jnp.ndim(ethr)
+         if rank not in (0, 3):
+             raise ValueError(
+@@ -9719,13 +9726,15 @@ def run_scf(
+                                       for spin in range(len(hamiltonians)))
+                         eigenvalues, cycle_steps, unsettled = stream_diagonalize(
+                             calculation, hamiltonians, nbnd, wavefunctions, thresholds,
++                            stragglers=SCF_STRAGGLERS,
+                             per_chunk=lambda spin, h, rows: eqx.tree_at(
+                                 lambda h: h.berry, h, berry.chunk_term(terms[spin], rows),
+                                 is_leaf=lambda x: x is None))
+                         steps = steps + cycle_steps
+                 else:
+                     eigenvalues, steps, unsettled = stream_diagonalize(
+-                        calculation, hamiltonians, nbnd, wavefunctions, thresholds)
++                        calculation, hamiltonians, nbnd, wavefunctions, thresholds,
++                        stragglers=SCF_STRAGGLERS)
+                 if pooled:
+                     # The occupations read every k-point (a Fermi level, the
+                     # tetrahedra), so every pool evaluates them on the whole
+@@ -9752,12 +9761,14 @@ def run_scf(
+                         for spin, h in enumerate(hamiltonians))
+                     eigenvalues, wavefunctions, cycle_steps, unsettled = (
+                         calculation.diagonalize(fielded, nbnd, wavefunctions,
+-                                                thresholds, return_steps=True))
++                                                thresholds, return_steps=True,
++                                                stragglers=SCF_STRAGGLERS))
+                     steps = steps + cycle_steps
+             else:
+                 wavefunctions = fetch_wavefunctions(wavefunctions)
+                 eigenvalues, wavefunctions, steps, unsettled = calculation.diagonalize(
+-                    hamiltonians, nbnd, wavefunctions, thresholds, return_steps=True
++                    hamiltonians, nbnd, wavefunctions, thresholds, return_steps=True,
++                    stragglers=SCF_STRAGGLERS,
+                 )
+             wg, levels = calculation.occupations(eigenvalues)
+             wants_ldos = getattr(getattr(mixer, "precondition", None),
+diff --git a/defuqumat/scf/streaming.py b/defuqumat/scf/streaming.py
+index 01c362ed..9d98467b 100644
+--- a/defuqumat/scf/streaming.py
++++ b/defuqumat/scf/streaming.py
+@@ -203,7 +203,7 @@ def stream_start(calculation, hamiltonians, nbnd: int, span=None, rows=None):
+ 
+ 
+ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
+-                       ethr=None, per_chunk=None):
++                       ethr=None, per_chunk=None, stragglers: int = 0):
+     """The Davidson solve of every k-point of every channel, one chunk at a time.
+ 
+     ``store`` is the previous states and is **overwritten in place** with the
+@@ -238,6 +238,9 @@ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
+         raise ValueError(
+             f"ethr must be a scalar or a (nspin, nk, nbnd) array, got rank {rank}")
+     extra = {} if calculation.david is None else {"david": calculation.david}
++    if stragglers:
++        # ``c_bands.f90``'s exit test inside an SCF (audit 2026-11-20b #9).
++        extra["stragglers"] = stragglers
+     array, rows = _unwrap(store)
+     nspin, nlocal = len(hamiltonians), len(rows)
+     eigenvalues = steps = unsettled = None
+diff --git a/defuqumat/solvers/davidson.py b/defuqumat/solvers/davidson.py
+index e0cf2e47..744a43d7 100644
+--- a/defuqumat/solvers/davidson.py
++++ b/defuqumat/solvers/davidson.py
+@@ -185,9 +185,10 @@ DAVID_NDIM = 4
+ #: estimate. ``ntry`` is counted before the test (``c_bands.f90:880-884``), so
+ #: that is six calls and 120 steps outside an SCF, not 100. Inside an SCF
+ #: ``pw.x`` re-enters only while more than five bands are unconverged, and with
+-#: one to five it moves on to the density; this loop does not do that, and runs
+-#: every call until each band settles or the budget is spent (audit 2026-11-20b
+-#: #9, held for the user). Re-entering is the same operation as the subspace
++#: one to five it moves on to the density, which :data:`SCF_STRAGGLERS` carries
++#: into ``run_scf``'s solves (audit 2026-11-20b #9); every other caller runs
++#: each call until every band settles or the budget is spent. Re-entering is
++#: the same operation as the subspace
+ #: collapse this loop already performs when the basis fills up, so one loop
+ #: reproduces it without the outer level. The budget is 100 for every caller.
+ #: It costs nothing when the solve converges early, which inside an SCF it
+@@ -196,6 +197,17 @@ DAVID_NDIM = 4
+ #: band-structure runs, and inside an SCF by a solve that stalls.
+ MAX_ITERATIONS = 100
+ 
++#: ``cegterg``'s own step budget per call (``cegterg.f90:72``, ``maxter``).
++MAXTER = 20
++
++#: How many bands an SCF lets stay unsettled at the end of a ``cegterg`` call
++#: (``c_bands.f90:914-916``, ``test_exit_cond``): inside an SCF ``pw.x``
++#: re-enters the solve only while more than five bands are unconverged, and
++#: with one to five it moves on to the density, where the next iteration
++#: corrects them. The SCF passes this as ``stragglers``; every other caller
++#: passes 0, which is the loop as it was (audit 2026-11-20b #9).
++SCF_STRAGGLERS = 5
++
+ #: Root-improvement threshold used when the caller does not supply one -- a
+ #: standalone solve, with no SCF around it to say how accurate is accurate
+ #: enough. Inside the SCF the driver schedules it the way ``electrons.f90`` does,
+@@ -592,6 +604,7 @@ def davidson_eigensolver(
+     axis_name: str | None = None,
+     return_steps: bool = False,
+     return_finite: bool = False,
++    stragglers=0,
+ ):
+     """The ``nbnd`` lowest eigenpairs at k-point ``ik``, iteratively.
+ 
+@@ -635,6 +648,11 @@ def davidson_eigensolver(
+             ``notcnv`` is a straggler, with a large one it is a stall, and a
+             *short* count can also mean the eigenvalues stopped being finite
+             (see ``unconverged``).
++        stragglers: traced. At the end of every :data:`MAXTER` steps, stop
++            when no more than this many bands are unsettled: ``c_bands.f90``'s
++            exit test inside an SCF, where :data:`SCF_STRAGGLERS` are left to
++            the next iteration. 0, the default, is the test outside an SCF and
++            is the loop as it was: it stops only when every band is settled.
+         robust: which route the subspace solve takes, *statically*. ``False`` is
+             the Cholesky one, which is what every validated number here was
+             produced with; ``True`` is canonical orthogonalisation, for an
+@@ -943,9 +961,18 @@ def davidson_eigensolver(
+         # the retry in :func:`davidson_eigensolver_all` cheap enough to be the
+         # guard rather than a ``cond`` inside the batch.
+         alive = jnp.all(jnp.isfinite(state[9]))
++        # ``c_bands.f90``'s ``test_exit_cond`` inside an SCF: at the end of a
++        # ``cegterg`` call, at most ``stragglers`` unsettled bands are left to
++        # the next SCF iteration. With 0 the clause is the converged test.
++        window_end = jnp.logical_and(state[13] > 0, state[13] % MAXTER == 0)
++        tolerated = jnp.logical_and(window_end, state[12] <= stragglers)
+         return jnp.logical_and(
+-            jnp.logical_and(jnp.logical_not(state[14]), state[13] < max_iterations),
+-            alive,
++            jnp.logical_and(
++                jnp.logical_and(jnp.logical_not(state[14]),
++                                state[13] < max_iterations),
++                alive,
++            ),
++            jnp.logical_not(tolerated),
+         )
+ 
+     def step(state):
+@@ -1161,6 +1188,7 @@ def _every_k(
+     return_steps: bool = False,
+     return_finite: bool = False,
+     indices=None,
++    stragglers=0,
+ ):
+     """One compiled solve of the whole k-set, by one of the two routes.
+ 
+@@ -1217,6 +1245,7 @@ def _every_k(
+             max_iterations=max_iterations, robust=robust, narrow=narrow,
+             axis_name=axis_name,
+             return_steps=return_steps, return_finite=return_finite,
++            stragglers=stragglers,
+         )
+ 
+     if psi0 is None:
+@@ -1295,6 +1324,7 @@ def davidson_eigensolver_all(
+     return_steps: bool = False,
+     indices=None,
+     psi0_again=None,
++    stragglers: int = 0,
+ ):
+     """Every k-point, ``k_batch`` of them at a time.
+ 
+@@ -1411,6 +1441,8 @@ def davidson_eigensolver_all(
+     # exactly as it always has -- ``tools/gpu``'s memory tool and the tests'
+     # stand-ins for it are written against that signature.
+     chunk = {} if indices is None else {"indices": jnp.asarray(indices)}
++    # Traced, so 0 and :data:`SCF_STRAGGLERS` are one executable.
++    chunk["stragglers"] = jnp.asarray(stragglers, dtype=jnp.int32)
+     # **The compiled unit always returns the step counts, and they are dropped
+     # here when they were not asked for** (``OPEN.md`` Part III M6). As a static
+     # argument, ``return_steps`` made ``True`` and ``False`` two compilations of
+diff --git a/tests/unit/test_scf_stragglers.py b/tests/unit/test_scf_stragglers.py
+new file mode 100644
+index 00000000..e33024ce
+--- /dev/null
++++ b/tests/unit/test_scf_stragglers.py
+@@ -0,0 +1,87 @@
++"""Inside an SCF, a ``cegterg`` call hands up to five unsettled bands on (audit 2026-11-20b #9).
++
++``c_bands.f90``'s ``test_exit_cond`` re-enters ``cegterg`` inside an SCF only
++while more than five bands are unconverged; with one to five it moves on, and
++the next SCF iteration corrects them. The loop here ran every call until each
++band settled or 100 steps passed. ``stragglers`` is the SCF's allowance: at the
++end of every 20 steps the solve stops when at most that many bands are left.
++
++The case is a solve from random vectors at ``ethr = 1e-13``, where every
++k-point of two-atom silicon takes 22 to 36 steps with 8 bands. With the
++allowance each k-point stops at step 20 or at its own convergence before it;
++with 0 the solve is the one it was, step for step.
++"""
++
++import numpy as np
++import pytest
++
++from defuqumat.io.pwin import parse_pw_input
++from defuqumat.pseudo import read_upf
++from defuqumat.scf.driver import Calculation
++from defuqumat.solvers.davidson import MAXTER, SCF_STRAGGLERS
++from defuqumat.system.builder import build_system
++
++pytestmark = pytest.mark.unit
++
++_SILICON = """
++&control
++  calculation = 'scf'
++/
++&system
++  ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1, ecutwfc = 12.0,
++  nosym = .true., noinv = .true.
++/
++&electrons
++/
++ATOMIC_SPECIES
++ Si 28.086 Si.pz-vbc.UPF
++ATOMIC_POSITIONS alat
++ Si 0.00 0.00 0.00
++ Si 0.25 0.25 0.25
++K_POINTS automatic
++ 2 2 2 0 0 0
++"""
++
++
++@pytest.fixture(scope="module")
++def solved(pseudo_dir):
++    system = build_system(parse_pw_input(_SILICON))
++    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file)
++                    for s in system.structure.species)
++    calculation = Calculation(system, pseudos)
++    hamiltonians = calculation.hamiltonian(
++        calculation.potential(calculation.starting_density()).v_scf)
++    out = {}
++    for allowance in (0, SCF_STRAGGLERS):
++        energies, _, steps, unsettled = calculation.diagonalize(
++            hamiltonians, 8, None, 1.0e-13, return_steps=True,
++            stragglers=allowance)
++        out[allowance] = (np.asarray(energies), np.asarray(steps).ravel(),
++                          np.asarray(unsettled).ravel())
++    return out
++
++
++def test_without_an_allowance_every_band_settles(solved):
++    _, steps, unsettled = solved[0]
++    assert (unsettled == 0).all()
++    assert (steps > MAXTER).any(), steps
++
++
++def test_an_scf_call_stops_at_the_end_of_a_window_with_few_stragglers(solved):
++    _, steps, unsettled = solved[SCF_STRAGGLERS]
++    # Stopped at the first window end with at most five unsettled, or settled.
++    assert (steps <= MAXTER).all(), steps
++    assert (unsettled <= SCF_STRAGGLERS).all(), unsettled
++    # Some k-points handed bands on, and each of them would have gone on.
++    handed = unsettled > 0
++    assert handed.any(), (steps, unsettled)
++    assert (steps[handed] == MAXTER).all()
++    assert (solved[0][1][handed] > MAXTER).all()
++
++
++def test_the_settled_bands_agree(solved):
++    """The bands both solves settled agree to the threshold's scale."""
++    full, _, _ = solved[0]
++    cut, _, unsettled = solved[SCF_STRAGGLERS]
++    # The lowest four bands are occupied in silicon and are settled first.
++    assert np.max(np.abs(cut[..., :4] - full[..., :4])) < 1e-8
+diff --git a/tests/unit/test_solvers.py b/tests/unit/test_solvers.py
+index 14136bdb..16722f0f 100644
+--- a/tests/unit/test_solvers.py
++++ b/tests/unit/test_solvers.py
+@@ -441,7 +441,8 @@ def _stub_every_k(bad_index, nk=5, nbnd=3, ndim=7):
+     robust_e = np.full((nk, nbnd), 100.0)
+     robust_psi = np.full((nk, nbnd, ndim), 7.0)
+ 
+-    def stub(*_arguments, robust=False, return_steps=False, return_finite=False):
++    def stub(*_arguments, robust=False, return_steps=False, return_finite=False,
++             **_others):
+         e, psi = (robust_e, robust_psi) if robust else (fast_e, fast_psi)
+         out = (jnp.asarray(e), jnp.asarray(psi))
+         if return_steps:
+@@ -499,7 +500,8 @@ def test_no_retry_and_no_warning_when_every_k_point_is_finite(monkeypatch):
+     calls = []
+     stub, fast_e, _, _, _ = _stub_every_k(bad_index=2)
+ 
+-    def clean(*arguments, robust=False, return_steps=False, return_finite=False):
++    def clean(*arguments, robust=False, return_steps=False, return_finite=False,
++              **_others):
+         calls.append(robust)
+         nk, nbnd, ndim = 5, 3, 7
+         out = (jnp.tile(jnp.arange(nbnd, dtype=float), (nk, 1)),

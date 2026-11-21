@@ -2,8 +2,10 @@
 
 :func:`~defuqumat.basis.gvectors.displaced_gvectors` cuts ``{G : |G + shift| <= G_cut}``
 on the resident box, with the smooth sphere as its prefix. These are host-side
-checks of the set itself; whether the spiral then equals its unfolded supercell
-is ``tests/regression/test_spin_spirals_augmented.py``.
+checks of the set itself, and one check that the transverse kinetic pair of a
+meta-GGA spiral goes up to the dense grid through it, as the transverse density
+does; whether the spiral then equals its unfolded supercell is
+``tests/regression/test_spin_spirals_augmented.py``.
 """
 
 from functools import lru_cache
@@ -217,3 +219,58 @@ def test_a_spiral_calculation_runs_on_the_widened_box(pseudo_dir):
     basis, (dense, smooth) = caught.value.args
     assert basis.dense.grid == (60, 60, 27) and basis.smooth.grid == (40, 40, 18)
     assert dense.grid == (60, 60, 27) and smooth.grid == (40, 40, 18)
+
+
+def test_a_spiral_s_transverse_tau_goes_up_on_the_laboratory_sphere(pseudo_dir):
+    """``tau'_+`` is band-limited where ``m'_+`` is, and is lifted the same way.
+
+    A spin spiral's transverse kinetic pair is built from the up component on
+    ``k + q/2`` and the down one on ``k - q/2``, so it carries the same
+    ``e^{-i q.r}`` as the transverse density and lives on the displaced smooth
+    sphere. The TB09 hydrogen chain at ``ecutrho = 8 ecutwfc`` has a separate
+    smooth grid, so the lift to the dense one is a real cut. Random states on
+    each component's own sphere: the pair has no weight off the displaced
+    sphere and some off the resident one, and the lifted pair goes back down
+    through the displaced sphere to itself. On ``419b5fb7`` it was lifted
+    through the resident sphere and the shell was lost (audit 2026-11-20c #25).
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.basis.fft import r_to_g
+    from defuqumat.basis.interpolate import pair_to_smooth, to_dense
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import Calculation
+
+    text = (GENERATED / "h-chain-spiral.in").read_text().replace(
+        "    nosym = .true.",
+        "    nosym = .true.\n    input_dft = 'tb09'\n    noncollinear_gga = 'kubler'", 1,
+    ).replace("ecutwfc = 25.0,", "ecutwfc = 25.0, ecutrho = 200.0,", 1)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    assert calculation.spiral_smooth is not None and system.nosym
+
+    nk, nbnd = system.kpoints.nk, 3
+    mask = np.asarray(calculation.basis.planewaves.mask)
+    on_spheres = np.concatenate([mask[:nk], mask[nk:]], axis=-1)   # (nk, 2 npwx)
+    rng = np.random.default_rng(3)
+    shape = (1, nk, nbnd, on_spheres.shape[-1])
+    psi = (rng.normal(size=shape) + 1j * rng.normal(size=shape)) * on_spheres[None, :, None]
+    psi = jnp.asarray(psi / np.linalg.norm(psi, axis=-1, keepdims=True),
+                      calculation.band_precision.complex)
+    weights = jnp.asarray(rng.uniform(0.1, 0.3, size=(1, nk, nbnd)))
+    tau = calculation.kinetic_energy_density(psi, weights, finish=False)
+
+    pair = np.asarray(tau[1] + 1j * tau[2])
+    total = np.sum(np.abs(np.fft.fftn(pair) / pair.size) ** 2)
+    def kept(gvectors):
+        return np.sum(np.abs(np.asarray(r_to_g(jnp.asarray(pair), gvectors.fft_index))) ** 2)
+    assert abs(total - kept(calculation.spiral_smooth)) < 1e-12 * total
+    assert total - kept(calculation.basis.smooth) > 1e-6 * total
+
+    finished = calculation.finish_kinetic_energy_density(tau)
+    back = pair_to_smooth(finished[1:3], calculation.spiral_dense, calculation.spiral_smooth)
+    scale = float(np.abs(np.asarray(tau[1:3])).max())
+    assert float(np.abs(np.asarray(back - tau[1:3])).max()) < 1e-12 * scale
+    scalar = to_dense(tau[::3], calculation.basis.smooth, calculation.basis.dense)
+    assert float(np.abs(np.asarray(finished[::3] - scalar)).max()) < 1e-12 * scale

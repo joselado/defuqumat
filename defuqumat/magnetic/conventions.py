@@ -55,7 +55,8 @@ import numpy as np
 from defuqumat.system.cell import Cell
 from defuqumat.units import TPI, tesla_from_flux
 
-__all__ = ["MagneticCell", "minimum_image", "signed_area", "refuse_regime"]
+__all__ = ["MagneticCell", "minimum_image", "signed_area", "refuse_regime",
+           "refuse_a_left_handed_cell"]
 
 
 class MagneticCell(eqx.Module):
@@ -85,16 +86,7 @@ class MagneticCell(eqx.Module):
             raise ValueError(f"the flux p/q needs positive p and q, got {p}/{q} "
                              "(the field is along a1 x a2; the opposite field is p < 0 "
                              "on route P, magnetic.blochgrid.magnetic_cell)")
-        if float(np.linalg.det(np.asarray(cell.at, dtype=float))) < 0.0:
-            # curl a = 2 pi n_phi b1 x b2 = 2 pi n_phi a3 / det(at) with the signed
-            # determinant, so on a left-handed cell the field is along -a3 while
-            # signed_area takes the orientation of a3, and the plaquette check
-            # raised after every solve, blaming the Peierls sign (``magnetic`` F5).
-            raise ValueError(
-                "a left-handed cell ((a1 x a2) . a3 < 0) is refused for an orbital field: "
-                "the field is along a1 x a2, which is -a3 there, and the conventions take "
-                "the orientation from a3. Write the cell right-handed, for example with "
-                "a1 and a2 swapped")
+        refuse_a_left_handed_cell(cell)
         if math.gcd(p, q) != 1:
             raise ValueError(f"p/q = {p}/{q} is not reduced; take {p // math.gcd(p, q)}/"
                              f"{q // math.gcd(p, q)}")
@@ -209,13 +201,39 @@ def signed_area(points, lattice) -> float:
     return float(0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y) * orientation)
 
 
+def refuse_a_left_handed_cell(cell) -> None:
+    """Refuse a cell with ``(a1 x a2) . a3 < 0``, for which the conventions do not hold.
+
+    ``curl a = 2 pi n_phi b1 x b2 = 2 pi n_phi a3 / det(at)`` with the signed
+    determinant, so on a left-handed cell the field is along ``-a3`` while
+    :func:`signed_area` takes the orientation of ``a3``, and the plaquette check
+    raised after every solve, blaming the Peierls sign (audit 2026-11-15,
+    ``magnetic`` F5). :meth:`MagneticCell.build` and :func:`refuse_regime` both
+    call it, the second at the door of every route, before any SCF (audit
+    2026-11-20 #28).
+    """
+    at = getattr(cell, "at", cell)  # a Cell, or three lattice vectors (rows)
+    if float(np.linalg.det(np.asarray(at, dtype=float))) < 0.0:
+        raise ValueError(
+            "a left-handed cell ((a1 x a2) . a3 < 0) is refused for an orbital field: "
+            "the field is along a1 x a2, which is -a3 there, and the conventions take "
+            "the orientation from a3. Write the cell right-handed, for example with "
+            "a1 and a2 swapped")
+
+
 def refuse_regime(system, pseudos, what: str) -> None:
     """Refuse, by name, every regime no orbital-field route implements.
 
     Spinors (``npol = 2``), ``nspin = 2``, ultrasoft and PAW datasets, spin spirals,
     DFT+U, meta-GGA and gamma-only storage. The field along ``a3`` is not a check: the
-    gauge puts it there by construction.
+    gauge puts it there by construction. A left-handed cell is refused first, with
+    :func:`refuse_a_left_handed_cell`'s ``ValueError``, so that a route refuses it at its
+    door and not after a zero-field SCF; a zero-field run of a route on such a cell is
+    refused with it (audit 2026-11-20 #28).
     """
+    cell = getattr(system, "cell", None)
+    if cell is not None:
+        refuse_a_left_handed_cell(cell)
     reasons = []
     if getattr(system, "npol", 1) != 1:
         reasons.append("a spinor (npol = 2) calculation")

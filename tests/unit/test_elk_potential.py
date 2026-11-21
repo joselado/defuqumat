@@ -158,3 +158,200 @@ def test_a_finite_nucleus_and_a_noncollinear_gga_are_refused():
                                  magir=np.repeat(state.magir, 3, axis=-1))
     with pytest.raises(NotImplementedError, match="dncgga"):
         exchange_correlation_potential(vector, dataclasses.replace(params, xctype=(20, 0, 0)))
+
+
+# ---------------------------------------------------------------- AUDIT-2026-11-20
+# The counts below are the "Number of crystal symmetries" that Elk 11.0.2 (the
+# elkpy build on the workstation) printed for each cell on 2026-11-20, from
+# one-loop runs of the inputs written out in each test.
+
+def _geometry(avec, positions, natoms):
+    from types import SimpleNamespace
+
+    geometry = SimpleNamespace(avec=np.asarray(avec, dtype=float),
+                               positions=np.asarray(positions, dtype=float),
+                               natoms=tuple(natoms))
+    return SimpleNamespace(geometry=geometry)
+
+
+def test_a_cell_that_is_not_primitive_keeps_every_translation():
+    """Si in the 8-atom cubic cell: 48 rotations x 4 pure translations = 192 in Elk.
+
+    ``findsymcrys`` calls ``findsym`` once per candidate translation, so a
+    rotation is in the group once for each translation that works. Keeping one
+    per rotation gave 48, a set of coset representatives and not a group.
+    """
+    from defuqumat.io.elk_potential import elk_space_group
+
+    fcc = [[0, 0, 0], [0, .5, .5], [.5, 0, .5], [.5, .5, 0]]
+    positions = fcc + [[x + .25 for x in p] for p in fcc]
+    state = _geometry(10.2 * np.eye(3), positions, (8,))
+    rotations, maps = elk_space_group(state.geometry)
+    assert len(rotations) == 192
+    pure = [m for r, m in zip(rotations, maps) if np.allclose(r, np.eye(3))]
+    assert len(pure) == 4 and len({tuple(m) for m in pure}) == 4
+
+
+MONOCLINIC = [[6.0, 0.0, 0.0], [1.3, 6.7, 0.0], [0.0, 0.0, 7.3]]
+PAIR = [[0.1, 0.2, 0.3], [-0.1, -0.2, -0.3]]
+
+
+@pytest.mark.parametrize("moments, nsym", [([0.1, -0.1], 1), ([0.1, 0.1], 2)])
+def test_the_spin_rotation_is_a_proper_lattice_rotation(moments, nsym):
+    """Two H related by inversion on a monoclinic lattice, ``bfcmt`` along the unique axis.
+
+    The lattice symmetries are E, I, C2z and the mirror; their proper parts
+    ``det(S) S`` are E and C2z, and neither reverses z. So Elk drops the
+    inversion of the antiferromagnet (1 operation) and keeps it for the
+    ferromagnet (2). A reversal -I among the candidates kept it for both.
+    """
+    _, n = crystal_symmetrizer(_geometry(MONOCLINIC, PAIR, (2,)), 2, moments=moments)
+    assert n == nsym
+
+
+def test_two_equal_moments_rounded_apart_still_match():
+    """O2: 0.1235 +- 1e-8 on the two atoms round to 0.124 and 0.123.
+
+    Elk keeps 16 operations for the ferromagnet. With a tolerance of 1e-3 of
+    the largest moment, 1.24e-4, the operations that swap the atoms were lost.
+    """
+    state, params = _read("o2_template_collinear")
+    _, n = crystal_symmetrizer(state, params.lmaxo, moments=[0.124, 0.123])
+    assert n == 16
+
+
+def test_a_small_antiparallel_pair_keeps_its_staggered_field():
+    """O2 with moments +-0.01: the swap must carry a spin flip, not the identity."""
+    state, params = _read("o2_template_collinear")
+    symmetry, n = crystal_symmetrizer(state, params.lmaxo, moments=[0.01, -0.01])
+    assert n == 16
+    field = np.zeros(state.bxcmt.shape)
+    field[0, :, 0, 0], field[0, :, 1, 0] = 1.0, -1.0
+    np.testing.assert_allclose(symmetry(field, magnetic=True)[0, :, :, 0],
+                               field[0, :, :, 0], atol=1e-12)
+
+
+@pytest.mark.parametrize("product", [2.5, 2.5 - 1e-12])
+def test_the_pseudocharge_constant_rounds_half_away_from_zero(product):
+    """init0's ``nint(0.25 gmaxvr rmt)`` is 3 at 2.5, where ``np.rint`` gives 2.
+
+    ``rsp(nrmt)``, the radius this module has, can sit an ulp from Elk's ``rmt``
+    on either side (1.6750000499999973 against 1.67500005 in the O2 template),
+    so a product Elk rounds to 3 can also arrive here just below 2.5.
+    """
+    import dataclasses
+
+    state, params = _read("o2_template_collinear")
+    rmt = state.rsp[0][state.nrmt[0] - 1]
+    params = dataclasses.replace(params, gmaxvr=4.0 * product / rmt, npsd=3)
+    coulomb_potential(state, params)
+
+
+def test_a_pseudocharge_constant_that_is_not_init0_is_refused():
+    import dataclasses
+
+    state, params = _read("sic_zb")
+    with pytest.raises(ValueError, match="pseudocharge"):
+        coulomb_potential(state, dataclasses.replace(params, npsd=params.npsd + 1))
+
+
+def _template_copy(tmp_path, name, elk_in="", info=None):
+    import shutil
+
+    directory = tmp_path / name
+    shutil.copytree(ELK / name, directory)
+    with open(directory / "elk.in", "a") as handle:
+        handle.write(elk_in)
+    if info is not None:
+        text = (directory / "INFO.OUT").read_text()
+        (directory / "INFO.OUT").write_text(info(text))
+    return directory
+
+
+def test_gradient_smoothing_is_refused_under_a_gga(tmp_path):
+    """``stable`` sets ``msmgmt = 1``, and ``rfmtsm`` then smooths every PBE gradient."""
+    directory = _template_copy(tmp_path, "sic_zb", "\nstable\n  .true.\n")
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    assert params.msmgmt == 1
+    with pytest.raises(NotImplementedError, match="msmgmt"):
+        exchange_correlation_potential(state, params)
+
+
+def test_gradient_smoothing_runs_under_the_lda(tmp_path):
+    directory = _template_copy(tmp_path, "h_sc", "\nmsmgmt\n  2\n")
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    assert params.msmgmt == 2
+    exchange_correlation_potential(state, params)
+
+
+def _with_scaled_xc(text):
+    marker = "Number of Bravais lattice symmetries"
+    return text.replace(marker, " scaled spin exchange-correlation enabled\n"
+                                "  scaling factor :    0.8000000000\n\n" + marker, 1)
+
+
+def test_a_scaled_spin_exchange_correlation_is_refused(tmp_path):
+    directory = _template_copy(tmp_path, "h_sc_spin", info=_with_scaled_xc)
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    assert params.tssxc
+    with pytest.raises(NotImplementedError, match="sxcscf"):
+        exchange_correlation_potential(state, params)
+
+
+def test_a_scaled_spin_exchange_correlation_runs_unpolarized(tmp_path):
+    directory = _template_copy(tmp_path, "h_sc", info=_with_scaled_xc)
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    assert params.tssxc
+    exchange_correlation_potential(state, params)
+
+
+def test_nosource_is_refused_on_a_spin_polarized_state(tmp_path):
+    directory = _template_copy(tmp_path, "h_sc_spin", "\nnosource\n  .true.\n")
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    with pytest.raises(NotImplementedError, match="nosource"):
+        exchange_correlation_potential(state, params)
+    unpolarized = _template_copy(tmp_path, "h_sc", "\nnosource\n  .true.\n")
+    exchange_correlation_potential(ElkState.read(unpolarized), read_elk_parameters(unpolarized))
+
+
+def test_a_constant_electric_field_is_refused(tmp_path):
+    def field(text):
+        marker = "Number of Bravais lattice symmetries"
+        return text.replace(marker, "Constant electric field applied across unit cell\n"
+                                    " field strength :    0.0  0.0  0.01\n\n" + marker, 1)
+
+    directory = _template_copy(tmp_path, "h_sc", info=field)
+    state, params = ElkState.read(directory), read_elk_parameters(directory)
+    assert params.tefield
+    with pytest.raises(NotImplementedError, match="tefield"):
+        coulomb_potential(state, params)
+
+
+@pytest.mark.parametrize("text, switches", [
+    ("stable\n  .true.\n\nmsmgmt\n  0\n", dict(symtype=1, msmgmt=0, nosource=False)),
+    ("msmgmt\n  0\n\nstable\n  .true.\n", dict(symtype=1, msmgmt=1, nosource=False)),
+    ("metagga\n  T\n", dict(symtype=1, msmgmt=4, nosource=False)),
+    ("nosym\n  .false.\n\nnosource\n  .true.\n", dict(symtype=1, msmgmt=0, nosource=True)),
+    ("!nosym\n  .true.\n\nsymtype\n  2\n", dict(symtype=2, msmgmt=0, nosource=False)),
+    ("symtype\n  2\n\nnosym\n  .true.\n", dict(symtype=0, msmgmt=0, nosource=False)),
+])
+def test_the_elk_in_switches_are_read_in_file_order(text, switches, tmp_path):
+    """``readinput`` reads the blocks in order: ``stable`` raises ``msmgmt``, a later one sets it."""
+    from defuqumat.io.elk_potential import _elk_input_switches
+
+    (tmp_path / "elk.in").write_text(text)
+    assert _elk_input_switches(tmp_path / "elk.in") == switches
+
+
+def test_a_template_without_elk_in_is_warned_about_where_it_matters(tmp_path):
+    import warnings
+
+    gga = _template_copy(tmp_path, "sic_zb")
+    (gga / "elk.in").unlink()
+    with pytest.warns(UserWarning, match="no elk.in"):
+        exchange_correlation_potential(ElkState.read(gga), read_elk_parameters(gga))
+    lda = _template_copy(tmp_path, "h_sc")
+    (lda / "elk.in").unlink()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        exchange_correlation_potential(ElkState.read(lda), read_elk_parameters(lda))

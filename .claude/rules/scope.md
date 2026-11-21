@@ -52,6 +52,12 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   switched on, permanently, symmetry beside an augmented dataset, DFT+U, `lspinorb`, an
   explicit k-list, the site angular momenta, the symmetrised projections or a change of
   `q` (the spin space group that keeps `q` and the moments is used otherwise, P155, I50).
+  DFT+U runs on a norm-conserving spiral under `nosym` (I28: its `wfcU` is built on both
+  spheres, and `dE/dq` carries `E_U` through them, audit 2026-11-20b #1) and is refused on
+  an ultrasoft or PAW one. Also refused for a spiral: the structure factors (the transverse
+  moment is on the satellites `H -/+ q`, audit 2026-11-20c #8), and every atomic projection,
+  with and without symmetry, so the PDOS (`projwfc/projections.py`: the orbitals have `2 nk`
+  rows and the states `nk`; the cure is the commensurate supercell, audit 2026-11-20c #18).
   A *tabulated* augmentation table takes `dE/dq` since P158 (I121): its extent is read
   on the host from the frozen wavevector, not from the traced `q`.
 - **Spin-orbit coupling on a spiral, to first order** (P123, `workflows/spiral_soc.py`).
@@ -73,7 +79,8 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   be dropped on every `at_spiral_q`, and BFGS's initial inverse Hessian is out by two orders on a
   milli-Rydberg magnetic surface (`BFGSSettings.hessian_scale`). A magnetic field is
   refused — its energy is outside the reported total, so the state is stationary for a
-  different functional.
+  different functional. With DFT+U the Hubbard projectors on the shifted spheres also carry
+  `q`, and a potential-only meta-GGA is refused (audit 2026-11-20b #1, #2, #13).
 - **Forces, stress and both relaxations** (P15, P11, P29, P46). The default is `jax.grad`
   of the total energy at *frozen* wavefunctions, with the orthonormality constraint carried
   explicitly so ultrasoft's Pulay term falls out of the same gradient; QE's hand-derived
@@ -147,11 +154,16 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   `c = 1` below `n_th` (`rs = 5` bohr). Two rules bind it. **`c` is a field and `meta_c` is
   its cell mean**: `Potential.meta_c_field` and `SCFResult.meta_c_field` carry it, and
   anything that needs `c` per point reads the field, never the mean (the PAW one-centre
-  terms take one `c`, so PAW is refused). **Below `n` = 1e-5 the potential is held at the
-  clean tail's value** (`mgga.hold_vacuum_potential`, the user's choice of 2026-11-18): a
+  terms take one `c`, so PAW is refused). **Below about 1e-4, centred on `n` = 1e-5, each
+  channel's potential is blended into the clean tail's value, on its own `2 n_sigma`**
+  (`mgga.hold_vacuum_potential`, the user's choice of 2026-11-18): a
   plane-wave density is a tail only down to a noise floor (about 1e-8), and the Becke-Johnson
   term tends to a positive constant there, so a cut at 1e-6 left a well and an evaluation down
-  to 1e-9 a 3.3 Ry noise barrier; held, the vacuum is flat at the asymptote. `tb09`/`bj06`
+  to 1e-9 a 3.3 Ry noise barrier; held, the vacuum is flat at the asymptote. The tail's value
+  is one mean per face when the shell `1e-5 < n < 1e-4` is the two faces of one slab, and the
+  cell mean otherwise, with a warning where separate pieces share it (audit 2026-11-20 #9,
+  #10, #47, the user's choice of 2026-11-20); a slab whose faces differ has a step in the
+  middle of its vacuum. A polarized `nspin = 2` run is admitted and not measured. `tb09`/`bj06`
   keep their 1e-6 cut, since a lower one made TB09's one-number average run away on a sheet. Parameter sets `'tb09'` (default; its bulk limit is TB09, an identity to 2.4e-14 Ry)
   and `'koller'` (the paper's). Refused: PAW, spinors, spirals, `nosource`, `mbj_c`, and every
   regime lifted for TB09 with one `c` (`xc/functional.py:refuse_local_meta`).
@@ -267,7 +279,12 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   XC on the spherical cover, LDA and Elk's PBE family, `symrfmt`/`symrvfmt` over **Elk's** group
   (any fractional translation, not QE's), unpolarized, collinear and LDA noncollinear. Near each
   nucleus the density is the template's (Elk's Dirac core), by functional. Refused: not PAW, a PAW
-  radius past `rmt`, another lattice, spin regime or atoms, spin-orbit, a noncollinear GGA, libxc.
+  radius past `rmt`, another lattice, spin regime or atoms, spin-orbit, a DFT+U template (its
+  `vmatmt` would start Elk's first loop), a noncollinear GGA, libxc; a template run with
+  `tefield`, with `tssxc` (`sxcscf /= 1`) or `nosource` on a spin-polarized state, or with
+  `msmgmt` (also set by `stable` and `metagga`) under a GGA; and a group whose order is not
+  `INFO.OUT`'s `nsymcrys` (the group follows `nosym`/`symtype` from `elk.in` and keeps every
+  translation of a cell that is not primitive; audit 2026-11-20 #1, #2, #19).
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through
@@ -277,7 +294,7 @@ set from gathered eigenvalues, and **every decision is broadcast from rank 0**, 
 pools with unequal thread counts can differ in the last bit. A pool's store is a
 `PoolStore`, not an `ndarray`, so a whole-set consumer fails instead of misreading it. The
 SCF, forces, stress and relaxations are pool-aware; every other `Calculator.get_*`
-refuses by name. On a CPU the local term and the density go through the grid a chunk of
+refuses by name, and so does every `Calculator.write_*` (audit 2026-11-20 #36, #42). On a CPU the local term and the density go through the grid a chunk of
 `z` planes at a time (`sticks_local`, `sticks_density`, `DEFUQUMAT_PLANE_CHUNK`), which is
 what keeps a core from slowing down when others share its memory.
 
@@ -293,5 +310,5 @@ carry the trick and nothing else does: `g_to_r_gamma` rebuilds the field from bo
 every plane-wave sum becomes `2 Re(sum) - (the G = 0 term)`, since `G = 0` is its own
 conjugate partner (`gamma_inner`, `calbec_gamma`); and `Im c(0)` must stay zero
 (`force_real_g0`, where `regterg.f90:174` and `:375` impose it). **Substituted rather than
-refused**, with a warning, for ultrasoft/PAW, for a run that uses symmetry, and for a
-spinor or spiral run — the same physics at twice the storage, and it says so.
+refused**, with a warning, for ultrasoft/PAW, for a run with a Hubbard term (DFT+U), for a
+run that uses symmetry, and for a spinor or spiral run — the same physics at twice the storage, and it says so.

@@ -9,7 +9,10 @@ potentials -- and for a spin-polarized state the magnetization, ``B_xc`` and
 energies are in Hartree on file and in Rydberg on :class:`ElkState`, so they
 are halved here; the factor is a power of two, and a state read and written
 back is Elk's file byte for byte, the uninitialised padding rows past
-``nrmt(is)`` included (``tests/unit/test_elk_write.py``).
+``nrmt(is)`` included (``tests/unit/test_elk_write.py``). A state read from an
+older Elk is written with the header records that version reads, as
+``readstate.f90`` gates them: ``xcgrad`` from 5.1, ``efermi`` from 9.6 and
+``dlefe`` from 10.7.
 
 **What Elk does with the file is the point to understand before writing one.**
 ``gndstate.f90`` with ``task = 1`` reads the state and goes straight to
@@ -126,9 +129,16 @@ def write_elk_state(path, state) -> Path:
             f.write_record(ints(state.ftmtype))
         f.write_record(ints(state.dftu))
         f.write_record(ints(state.lmmaxdm))
-        f.write_record(ints(state.xcgrad))
-        f.write_record(np.array([state.efermi / HARTREE_TO_RY]))
-        f.write_record(np.array([state.dlefe / HARTREE_TO_RY]))
+        # ``xcgrad`` from 5.1, ``efermi`` from 9.6 and ``dlefe`` from 10.7, the
+        # gates of ``readstate.f90:116-129`` and of the reader: a state of an
+        # older Elk read and written back has none of them.
+        major, minor = state.version[0], state.version[1]
+        if major > 5 or (major == 5 and minor > 0):
+            f.write_record(ints(state.xcgrad))
+        if major > 9 or (major == 9 and minor > 5):
+            f.write_record(np.array([state.efermi / HARTREE_TO_RY]))
+        if major > 10 or (major == 10 and minor > 6):
+            f.write_record(np.array([state.dlefe / HARTREE_TO_RY]))
         for mt, ir, scale in (
                 (state.rhomt, state.rhoir, 1.0),
                 (state.vclmt, state.vclir, HARTREE_TO_RY),

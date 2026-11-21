@@ -7402,6 +7402,13 @@ all five places it was cut: the transverse augmentation charge (`_addusdens_spir
 transform), the `cross_integrals` of `newd`, the smooth-to-dense lift of the transverse density
 (`lift_density`), the dense-to-smooth cut of `W = V_x + i V_y` (`local_terms`), and the phases on
 a move of the atoms (`at_positions`). The charge and `m_z` stay on the resident sphere.
+*Added 2026-11-20 (audit 2026-11-20c #25, `a58a9b02`, `PLAN.md` P183):* the transverse
+kinetic energy density of a meta-GGA spiral, `tau'_+`, was a sixth place. It went up through
+the resident sphere until `finish_kinetic_energy_density` called `lift_density`; on the TB09
+hydrogen chain at `ecutrho = 8 ecutwfc` the unfolded spiral `tau_x` and `tau_y` missed the
+supercell's by 6.10e-6 and miss it by 5.73e-9 after, the level of the density (5.0e-9). It
+moves only a double grid (`ecutrho` above 4 `ecutwfc`), which no committed meta-GGA spiral
+input sets; I27 is at dual 4 and does not move.
 `at_spiral_q(rebuild_basis = False)` takes the set frozen at the SCF's `q`, the rebuilding branch
 rebuilds it. Diagnostic `plans/open-a-scripts/xxi1.py` with a control arm that hands back the
 resident sets (the code before), on D22-0161, six cores, `/l/ladovj1/review/round3-l/`:
@@ -9634,3 +9641,290 @@ and `l/(2l+1)`, as `pw.x`), and `pw.x`'s choice of routine (`orthoUwfc` calls
 what defuqumat transcribes). Not yet looked at: the offsets of the Hubbard manifold among the
 folded channels when the dataset has more than one `l` with two `j` (Pt has 5d and 6p), the
 reference occupation, and the noncollinear Hubbard energy at an `ns` whose orbital part is complex.
+
+**A `pw.x` comparison on a three-fold orbit is not a check of this branch (2026-11-20, audit #44).** `new_ns` writes `D^T nr D` at `irt(isym, na)` and `new_ns_nc` writes `D nr D^T` at the same `irt(isym, na)`, so the two QE routines pair the rotation with the atom permutation in opposite orientations. `build_ns_symmetry` follows `new_ns` and `PAW_symmetrize` with `s` relabelled, for both regimes. On hcp Pt every orbit permutation is an involution and the two pairings are one sum, which is why the 1.2e-9 above cannot tell them apart. On a kagome orbit (24 operations, 8 of them 3-cycles) the average written here is a projector to 1e-15, and the `new_ns_nc` pairing built from the same tables changes by 1.3 when applied a second time, so it is not (`test_the_spinor_average_is_a_projector_on_a_three_fold_orbit`). No `pw.x` run on such a cell was compared. If one disagrees, the first check is our wedge `ns` against our own `nosym` whole-grid `ns`, not a change toward `pw.x`.
+
+# Part XXXII -- what the audit fixes of 2026-11-20 left, 2026-11-21
+
+The three reading audits of 2026-11-20 were fixed on the branch `audit-fixes-1120` (`PLAN.md`
+P183), and what was fixed or refused is in the fix log at the end of each note
+(`notes/AUDIT-2026-11-20.md`, `notes/AUDIT-2026-11-20b.md`, `notes/AUDIT-2026-11-20c.md`). These
+five entries are what is carried forward: one sized deferral, the fixes that are written and
+held as patches, and three things seen beside a fix and not followed. The open choices that
+are a pick list for the user rather than work are in P183.
+
+## 1. The KPM spin DOS takes the whole grid where the exact trace could take the wedge **[open 2026-11-20, audit 2026-11-20 #13; an optimization, about a day]**
+
+**What it affects.** Cost only. `whole_grid_calculation` moves every spin-resolved KPM trace to
+the whole grid. The identity that would allow the wedge is right for a sum:
+`sum_k w_k Tr[sigma_i T_n(H_k)]` over the wedge, averaged over the group the wedge was cut with
+in the axial representation (`det(R) R`, with a sign for every `t_rev` operation and for plain
+time reversal), is the whole-grid sum. Only `trace="exact"` gains, by `N / nk_wedge` in the
+recursion (4 on SeI at shifted 2x2x2, up to 48 on a cubic cell). With the default stochastic
+trace the variance of the weighted wedge sum is `sum_k w_k^2 / R` against `1 / (N R)` on the
+whole grid, so larger by at least `N / nk_wedge` at equal `n_random` (an estimate from the
+estimator, not a measurement), and the wedge is not cheaper there.
+
+**What to do.** A magnetic norm-conserving spinor cell with `t_rev` operations at a fixed
+density, no SCF (the SeI cell with a starting magnetization along a three-fold axis is a
+candidate); the average over `grid_symmetry()`, restricted to the grid's stabilizer; whole grid
+against wedge with the exact trace on that cell and on SeI; the two sign checks; and the timing
+pair after a warm-up, both arms on cores 0 to 3, in `PERFORMANCE.md`. On a nonmagnetic spinor
+time reversal is in the grid's group, so the axial average of any `(3, N)` array is identically
+zero and a comparison there cannot fail. `system/wedge.py:wedge_group` refuses magnetic wedges
+today for the same reason: no magnetic cell has been measured against its whole grid. Two
+choices are the user's: whether the stochastic trace should take the wedge at all, and whether
+a nonmagnetic run should return zero without running anything.
+
+**How to know it worked:** the exact-trace spin DOS of the magnetic cell on the wedge equals
+the whole grid's to round-off, and each sign check breaks the equality when its sign is dropped.
+
+## 2. Six fixes of the audit are written and held as patches **[open 2026-11-21; each is the user's choice; two more are item 8]**
+
+**What it affects.** Each patch is in `notes/audit-1120/`, with its tests inside it, and was
+held because it moves a number `PLAN.md` records, reaches slow files only the user runs, or
+shows no gain. Checked at `9750e507` with `git apply --check`: each applies clean. The fix-log
+entry named beside each has the measurements.
+
+- `round2-3-rotate-fit-vectors.patch` (audit 2026-11-20b #3): turns the `rho_ddot` fit vectors
+  under `rotate_moments`, where the history is now dropped at every turn. Right by construction
+  (after each of 38 turns every stored fit vector equals the metric of its turned residual to
+  6.0e-16). On the oblique cobalt it gives 59 to 48 iterations on one arithmetic order and 53 to
+  60 on one efficiency core, so no saving is shown, and it would move I78 (53 iterations), I113
+  (25.974 and 55.712 degrees), I112's 38.557 degree end state and the "53 iterations" of
+  `docs/guide/anisotropy.md`. What decides it: `tests/regression/test_anisotropy.py` rerun with
+  the patch and the three rows remeasured.
+- `round2-9-scf-stragglers.patch` (audit 2026-11-20b #9): `pw.x`'s allowance of five unsettled
+  bands inside an SCF. On si8-1k, si16-1k, si8-us-1k and the Y3 silicon it changes nothing (no
+  call passes 10 steps), and it changes the SCF's exit in the stall regimes `PERFORMANCE.md`
+  records. What decides it: a cell where a Davidson call inside an SCF passes 20 steps, with a
+  timing pair.
+- `round2-11-kubler-cut-channels.patch` (audit 2026-11-20b #11): the noncollinear `'kubler'` GGA
+  on the PAW sphere evaluated on the re-expanded (cut) channels, as `PAW_gcxc_potential` does. On
+  the `O.pbe-kjpaw` sphere with a direction that varies, `max|jax.grad(E) - ddd|` over `max|ddd|`
+  goes from 5.6e-4 to 5.3e-5 and the one-centre energy moves by -1.7e-5 Ry; on the converged
+  `o2-paw-texture.in` it is a null (4.4e-15). It reaches the slow PAW spinor files
+  (`tests/regression/test_spin_spirals_augmented.py`, `test_relaxed_anisotropy.py`,
+  `test_spinor_response.py`). A canted PBE PAW chain did not converge in 150 iterations on the
+  patched code, and the unpatched arm was not run.
+- `round2-21-symmetrize-ddd.patch` (audit 2026-11-20b #21): QE's group average of `ddd_paw`, in
+  the SCF only. The asymmetry is the angular quadrature's: 3.2e-7 of 0.22 on As of AlAs PAW,
+  2.7e-9 of 0.24 on fcc platinum, 1.8e-16 on silicon. On the AlAs wedge the `t2` triplet at
+  Gamma is split by 5.834e-8 Ry before and 1.4e-15 after, and the total moves by +4.2e-9 Ry. The
+  three options (leave it; QE's average in the SCF only, with forces then off by the asymmetry;
+  average the one-centre energy before it is differentiated) are the user's. The patch does the
+  second and is incomplete for it (`nscf`, the residual solver and the response rebuilds still
+  take the raw `ddd`).
+- `round3-2-paw-wedge-becsum.patch`, with its driver `round3-2-raman-wedge-experiment.py` (audit
+  2026-11-20c #2): the value split of `becsum` for PAW third derivatives on a wedge. Alone it
+  takes the Raman tensor from 1.77e-5 to 9.50e-5 off the whole grid, so it is not the fix. The
+  complete fix also needs a full-zone tangent of `becsum` in `D` and in `paw_response`, about 100
+  lines in three files; with it the Raman tensor reproduces the whole grid to 2.0e-13, and the
+  strain half is not measured. Until then a PAW third derivative on a symmetry-reduced k-set is
+  refused (`require_a_whole_grid_for_paw`).
+- `round3-29-mixed-newton-refusal.patch` (audit 2026-11-20c #29): refuses
+  `band_precision = 'mixed'` with a residual solver. Left as it is for now: the run always ends
+  in double, so the result is right, and the cost is 152 against 35 evaluations of `F` on
+  `si16-1k.in`. The other option, the Newton solve in double (about three lines), needs a timing
+  pair on a card.
+
+`local-tail-9-10-on-900af157.patch` is in the same folder as a record only: the local Gaussian
+tail for the local mBJ hold, superseded by the mean per face the user picked (it needs `--3way`
+to apply).
+
+**How to know it worked:** for each patch that lands, the fix-log entry gets its commit, the
+rows it moves are remeasured in `PLAN.md`, and the patch file is removed.
+
+## 3. The SCF energy of hcp aluminium on a 2x2x2 grid differs by 6.8e-7 Ry between the wedge and `nosym` **[open 2026-11-20, seen beside audit 2026-11-20b #12, not investigated]**
+
+**What it affects.** Unknown. On a Gamma-centred 2x2x2 grid of the hcp cell of
+`tests/data/qe/al2-hcp-metal.in` at 8 Ry, the SCF energy on the wedge (4 points) and without
+symmetry (8 points) differ by 6.8e-7 Ry (-8.443718494555618 against -8.443717817835587) and the
+Fermi levels by 1.8e-6 Ry, where on 4x4x2 they agree to 1e-14. The cause was not looked for.
+
+**What to do.** First rule out the threshold: `notes/audit-1120/decisions.md` says it may be the
+`conv_thr` of that run. Rerun both arms at `conv_thr = 1e-12`, the value of the 4x4x2 pair, on
+the same cores. If the difference stays, the next comparison is the wedge density against the
+`nosym` one.
+
+**How to know it worked:** the two energies agree to the threshold of the run, or the term that
+differs is named.
+
+## 4. `starting_ns_eigenvalue` is applied again by every fresh `run_scf` **[open 2026-11-20, seen beside audit 2026-11-20c #3, not measured]**
+
+**What it affects.** A run that calls `run_scf` more than once with the request set.
+`ns_adj.f90` ends with `starting_ns = -1.0_dp`, so `pw.x` applies the request once per process
+(its one `ns_adj` call, in `electrons_scf` at the first iteration of a fresh run). Here every
+fresh `run_scf`, one with no `starting_density` and no `starting_ns`, applies it again, and
+that includes the final SCF of `run_vc_relax`, which starts with no density.
+
+**What to do.** Decide whether the request is a property of the first SCF only, as in `pw.x`,
+and if so drop it from the system the later SCFs of a relaxation are given. The final SCF of a
+variable-cell relaxation is the case to measure first.
+
+**How to know it worked:** a vc-relax of a DFT+U cell with the request gives a final SCF whose
+first iteration leaves `ns` as the occupation matrix of its states.
+
+## 5. `run_ultracell_stm` hands the scan's `heights` to the augmented-plane guard in the wrong unit **[open 2026-11-20, seen beside audit 2026-11-20c #9]**
+
+**What it affects.** A constant-current ultracell image on an ultrasoft or PAW dataset.
+`run_ultracell_stm` passes `heights`, which are in bohr along the normal from the tip plane, to
+`_refuse_an_augmented_plane` as if they were crystal coordinates along `axis`
+(`workflows/ultracell.py`, the `sampled += [float(h) for h in heights]` line). So the tip
+positions that are checked against the augmentation spheres are not the ones the scan visits.
+On a norm-conserving dataset the guard returns at once (the radius is zero), so nothing
+recorded is reached.
+
+**What to do.** Convert the two ends of the scan to crystal coordinates along `axis`, from the
+tip plane's own coordinate and the plane spacing, before the guard.
+
+**How to know it worked:** on a dataset with an augmentation radius, a scan whose range enters
+a sphere is refused and one that stays in the vacuum runs, and the test fails on the code
+before the change.
+
+## 6. The turning wedge is lifted for the two one-shot torques only **[open 2026-11-21, audit 2026-11-20c #13; three lifts, each the user's choice]**
+
+**What it affects.** A run from `Calculator.with_turning_moments()`. `get_torque` and
+`get_orientation_torque` take its identity-and-inversion wedge at every orientation since
+`1915ce05` (2.2e-11 Ry/rad from `nosym` on tetragonal Co, where the wedge of the unturned
+moment's group is 3.6e-5 off). Three routes still need `nosym` there: a PAW dataset at a turned
+orientation, `get_first_order_soc` (`frozen_expectation`), and `get_relaxed_orientation`
+(`relax_orientation`), which refuses the wedge at its door. On PAW the identity rotation on
+that wedge is allowed since 2026-11-15 and is not measured either, so the PAW rule is not
+consistent.
+
+**What to do.** (a) PAW: one `soc_scale = 0` SCF of the nickel cell of
+`tests/regression/test_orientation_paw.py` and two one-shots, wedge against `nosym`; then lift
+the turned case or refuse the identity. (b) `frozen_expectation` on the wedge was measured
+equal to `nosym` (3.9e-12 Ry on 7.6e-7 on the committed cell, 8.5e-12 on 1.6e-5 at 3x3x3);
+passing `turning_wedge=True` at its call lifts it. (c) `Calculation.with_texture`
+(`scf/driver.py`) refuses a turn on a run with symmetry and already compares the k-set
+bitwise; exempt a `turning_moments` system there, drop the door refusal of
+`relax_orientation`, and add a two-step test.
+
+**How to know it worked:** for each route, the number on the wedge agrees with `nosym` to the
+accuracy of the states, the wedge of the unturned moment's group does not (the control), and
+the test fails on the code before the lift.
+
+## 7. One checkpoint directory named by hand at two different runs is not told apart, and the multi-run workflows have no restart **[open 2026-11-21, audit 2026-11-20c #24; two additions, sized]**
+
+**What it affects.** Since `6aef4873` a constructor-level `checkpoint_dir` no longer crosses
+into a derived calculator or into the ground states of `get_spiral_scan`,
+`get_relaxed_anisotropy` and `get_magnetoelectric_tensor`. Two things are left. A directory
+the caller names at two runs (`calc.get_scf(checkpoint_dir='ck')`, then
+`calc.with_moments(m).get_scf(checkpoint_dir='ck')`) is still resumed by the second, because
+the fingerprint of `load_state` is shapes, `nspin`, `nspin_mag`, `nbecsum` and types. And a
+relaxed anisotropy, a spiral scan or a magnetoelectric tensor run from the facade has no
+checkpoint at all now; named in the call, `get_spiral_scan(checkpoint_dir=...)` starts each
+`q` from the state of the one before, and the magnetoelectric `scf_options['checkpoint_dir']`
+chains its six runs as `chain=True` does (3.9e-8 against 3.4e-9 on the null, its docstring).
+
+**What to do.** (a) A run fingerprint: positions, cell, starting moments and angles, field and
+constraint, spiral `q`, quantization axis, `soc_scale`. About 25 lines in `state_fingerprint`,
+15 in `_check_fingerprint`, 10 on the resume branch of `run_scf` only (`run_relax` resumes
+from the previous geometry's state on purpose). Old files lack the keys and are skipped by the
+existing rule. Six fast tests, half a day. The choice: a mismatch raises, or warns and starts
+from the seed. (b) A subdirectory per direction, `q` or field, named by value and not by
+index: about 40 lines in three workflows and three tests, 15 lines more to save converged
+results.
+
+**How to know it worked:** (a) the second run of the example above starts from its own
+moments, and a killed run resubmitted with the same command still resumes. (b) A relaxed
+anisotropy killed in its second direction and resubmitted reruns only that direction, and
+`E(z) - E(x)` on `co-tetragonal-relaxed-mae.in` is the -0.422517 meV of the separate runs.
+
+## 8. Two more fixes of the audit are held as patches: the 'fit' estimate and the ultracell's weighted states **[open 2026-11-21, audit 2026-11-20c #23 and #17]**
+
+**What it affects.** *#23, memory on a card.* `k_batch = 'fit'` and the band-batch chooser
+price a whole mesh as a stream where the SCF holds the store on the device, so the estimate
+is low by `wf_spin S` (2.0 to 4.2 per cent on two-atom Si at 64 k-points, 7.6 per cent on the
+hydrogen chain) and the whole mesh, or a band block, can be chosen where it does not fit.
+Never a wrong number. *#17, time.* Under fixed occupations the ultracell density and `tau`
+transform every state, 5/6 of them with zero weight at `nbnd = 24` on silicon (0.278 of the
+box transforms of an iteration, 0.556 with `tau`).
+
+**What to do.** *#23.* `notes/audit-1120/round3-23-fit-device-store.patch` applies at
+`277ce4d5`. Its k-chunk half (`sizing.py` and the `resolve_k_batch_for` hunk) flips no
+recorded choice. Its band-batch half moves the recorded 14 bands of `h40-chain-lsda.in` on the
+GTX 1060 at 2225 MB to 11, so either measure the chain there (the peak at 14 and at 11 bands
+against 1335 MB) or land it and mark the 14 as superseded. *#17.*
+`notes/audit-1120/round3-17-ultracell-weighted-states.patch`, bitwise equal at `nspin = 1` on
+four cases. Run `notes/audit-1120/round3-17-ultracell-timing.py` on a quiet machine at 4 and 8
+cells for the pair, then check `nspin = 2`, a spinor and one TB09 cell bitwise.
+
+**How to know it worked:** *#23:* `tests/unit/test_fit_store.py` of the patch passes, and the
+chooser's whole-mesh estimate equals `Calculator.estimate(k_batch=None)`. *#17:* the density,
+the levels and the energy are bitwise equal in every regime, and the pair is in
+`PERFORMANCE.md`.
+
+## 9. `Calculator.with_positions` raises a shape error when the move changes the symmetry group **[open 2026-11-21, seen beside audit 2026-11-20c #24, reproduced once]**
+
+**What it affects.** A derived calculator on an automatic k-grid with symmetry on. A move that
+changes the group changes the wedge (3 to 5 points on two-atom Si at 2x2x2, one atom moved by
+0.02 alat), the frozen basis holds the parent's spheres, and `Calculation.__init__`
+(`scf/driver.py:2689`) raises `TypeError: add got incompatible shapes for broadcasting:
+(5, 1, 3), (3, 190, 3)`. It is loud, not a wrong number. The script that showed it is
+`notes/audit-1120/session/scratch/r3g/repro_withpos.py` (untracked).
+
+**What to do.** Decide what a frozen basis means when the k-set changes: rebuild the basis for
+the new wedge (then the move is not at a frozen basis), keep the parent's k-set and its
+weights (then the wedge is no longer the group's), or refuse by name and send the user to
+`nosym` or to a fresh `Calculator`. The relaxations set up their k-points once and only check
+the symmetry afterwards, as `pw.x` does, so they do not pass here.
+
+**How to know it worked:** the example gives either a result or an error that names the
+cause, and a test pins it.
+
+## 10. A resume from a mid-run checkpoint is refused at a cutoff below the dataset's **[open 2026-11-21, seen beside audit 2026-11-20c #24, measured on one cell]**
+
+**What it affects.** On tetragonal Co at 12/96 Ry the density of a mid-run state misses the
+electron count (8.999881 at iteration 10 and 8.999987 at 12, against 9), so a resume from the
+run's own checkpoint stops with the `z_valence` message. At 20/160 Ry it integrates to
+9.00000000 and resumes. So a low-cutoff test run cannot be resumed, and the message does not
+say why.
+
+**What to do.** Find which term loses the charge at a low `ecutrho`; this was not
+investigated. Then either renormalise on write, or widen the tolerance of the resume check
+with a warning.
+
+**How to know it worked:** the 12/96 Ry run resumes from its own checkpoint and ends at the
+energy of the uninterrupted run.
+
+A cosmetic point seen in the same work: the drift warning of `run_relaxed_anisotropy` prints
+its direction as `np.float64(0.0)`.
+
+## 11. Eighteen slow tests fail at master on the Triton nodes, in 15 files **[open 2026-11-21, measured at master `e22a1c5d` and at `ceedcaf6`, not investigated]**
+
+**What was measured.** The 99 slow files that the audit fixes reach were run on Triton
+(`batch-csl`, 8 CPUs per file, array job 21740810 at `ceedcaf6`), and the 15 files with
+failures were then run at master `e22a1c5d` (jobs 21742448 and 21742528). **The same 18 tests
+fail at both commits, each with the same number to every printed digit**, so the branch
+`audit-fixes-1120` causes none of them. The list, with what each read, is in `PLAN.md` P183,
+"The slow files were then run". By kind:
+
+- A bound missed by a small factor: `test_anisotropy.py` (7.24e-06 against 1e-06),
+  `test_response.py` (1.94e-06 against 1e-06), `test_ultracell_stm.py` (4.37e-05 against
+  1e-05), `test_spiral_relaxation.py` (1.3e-09 against 1e-09), `test_scf_restart.py`
+  `[secant-12]` (6.8e-09 against 1e-09), `test_elk_allelectron.py` (1.0e-05 relative against
+  1e-08).
+- A guard or a message that the test asks for and the code does not give:
+  `test_quantum_metric.py` (`refused on a metal`), `test_shg.py` (no `NotImplementedError`),
+  `test_transport.py` and `test_ultracell_sts.py` (no `do not lie between` warning),
+  `test_streamed_phonons.py` (two cases, `walked` is not `None`), `test_elastic_one_trace.py`
+  (three tests, 0 traces counted).
+- A number far from its bound: `test_spin_spirals_augmented.py` (0.119 against 1e-10),
+  `test_scf_solvers.py` (1.88e-05 where more than 0.02 is asked),
+  `test_magnetic_ultracell_slow.py` (`the assembled H is not Hermitian`, 7.608e-07 against
+  1.0e-08).
+
+**What is not known.** Whether any of them fails on the workstation: the slow set was not run
+there, so a difference of the Triton nodes or of the Triton venv is not excluded, above all
+for the first kind. Which commit of master each one starts at. `tests/regression/
+test_realtime_regimes.py` did not finish in 1 h 21 min at `ceedcaf6` and was cancelled, so its
+state is not known either.
+
+**What to do.** One file at a time: run the single failing test here under the cap where it
+fits in 5 GB, and bisect on master where it fails here too. The second kind is the cheapest to
+read, since the missing guard or message is a string to search for.
+
+**How to know it worked:** the 15 files pass at master on the machine where they failed.

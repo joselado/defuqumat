@@ -1,0 +1,288 @@
+diff --git a/defuqumat/scf/driver.py b/defuqumat/scf/driver.py
+index 6c498f77..144f87ba 100644
+--- a/defuqumat/scf/driver.py
++++ b/defuqumat/scf/driver.py
+@@ -2380,14 +2380,24 @@ def resolve_band_batch_for(band_batch, mode, system, pseudos, k_batch="default",
+         return batching._platform_default()
+     from defuqumat.sizing import choose_band_batch
+ 
++    # a k-chunk to be fitted is grown from one k-point after this, and only
++    # if the whole block fits there (:func:`resolve_k_batch_for`)
++    chunk = (1 if batching.k_batch_fit_requested(k_batch)
++             else resolve_k_batch(k_batch, mode))
+     choice = choose_band_batch(
+         system, pseudos, nbnd=nbnd or system.nbnd, davidson_basis=david,
+-        # a k-chunk to be fitted is grown from one k-point after this, and only
+-        # if the whole block fits there (:func:`resolve_k_batch_for`)
+-        k_batch=(1 if batching.k_batch_fit_requested(k_batch)
+-                 else resolve_k_batch(k_batch, mode)),
++        k_batch=chunk,
+         projectors=resolve_projectors(projectors, mode),
+-        wfc_store=resolve_wfc_store("default", mode),
++        # The store the SCF takes at that chunk, by the SCF's own rule: the
++        # preset's stream only where the chunk is smaller than the mesh, and
++        # the device where it is the mesh (``k_batch=None``, a chunk of ``nk``
++        # or more, a one-k-point cell). Priced as a stream there, the block was
++        # accepted ``wf_spin`` sets below what the run then held (audit
++        # 2026-11-20c #23). A ``wfc_store`` given to ``run_scf`` itself is not
++        # known here, so a stream asked for by hand is priced as the device's,
++        # which is the safe side.
++        wfc_store=resolve_scf_wfc_store("default", mode, chunk,
++                                        int(system.kpoints.nk)),
+     )
+     if choice.band_batch is not None:
+         what = ("does not fit even one band at a time"
+@@ -2440,6 +2450,11 @@ def resolve_k_batch_for(k_batch, mode, system, pseudos, projectors="default",
+         system, pseudos, nbnd=nbnd or system.nbnd, davidson_basis=david,
+         band_batch=None, projectors=resolve_projectors(projectors, mode),
+         wfc_store=resolve_wfc_store("default", mode),
++        # With the whole mesh in flight the SCF puts the store on the device
++        # (``resolve_scf_wfc_store``), so that candidate is priced there and
++        # the partial chunks as the stream they run with (audit 2026-11-20c #23).
++        whole_mesh_store=resolve_scf_wfc_store(
++            "default", mode, None, int(system.kpoints.nk)),
+     ).k_batch
+ 
+ 
+diff --git a/defuqumat/sizing.py b/defuqumat/sizing.py
+index f7542405..8580d4b8 100644
+--- a/defuqumat/sizing.py
++++ b/defuqumat/sizing.py
+@@ -1265,7 +1265,8 @@ def choose_k_batch(system, pseudos, nbnd: int | None = None,
+                    band_batch: int | None = None, projectors: str = "rebuild",
+                    wfc_store: str = "stream",
+                    headroom: float = SPEED_HEADROOM,
+-                   available: int | None = None) -> KBatchChoice:
++                   available: int | None = None,
++                   whole_mesh_store: str | None = None) -> KBatchChoice:
+     """The largest k-chunk whose estimated peak fits the device.
+ 
+     **Why a chunk and not one k-point a call.** One k-point per call is QE's
+@@ -1296,6 +1297,20 @@ def choose_k_batch(system, pseudos, nbnd: int | None = None,
+     (``None``) is the only one a chunk is grown for, since a run whose block does
+     not fit at one k-point has nothing to spare. ``available`` replaces the
+     device query, for a test or a planned run on a card that is not this one.
++
++    ``whole_mesh_store`` is the store the SCF takes **when the chunk is the
++    whole mesh**, where it differs from ``wfc_store``, the store of a partial
++    chunk. In memory mode on a card the two do differ: the preset streams, and
++    :func:`~defuqumat.batching.resolve_scf_wfc_store` puts the store on the
++    device wherever every k-point is in flight. The whole-mesh candidate is
++    then priced with the store on the device, which holds ``wf_spin`` sets
++    where the stream holds one chunk, and one channel's starting block beside
++    the eigensolver's buffer (``solve_block``); the partial chunks of the
++    bisection stay streamed. Priced as a streamed chunk, the whole mesh was
++    accepted up to ``wf_spin`` sets below what the run then held, and
++    :meth:`~defuqumat.calculator.Calculator.estimate`, which resolves the store
++    by the SCF's rule, disagreed with the chooser about the same run (audit
++    2026-11-20c #23). ``None`` prices every candidate at ``wfc_store``.
+     """
+     if available is None:
+         import jax
+@@ -1319,10 +1334,23 @@ def choose_k_batch(system, pseudos, nbnd: int | None = None,
+         return base.at_k_batch(chunk).peak_bytes
+ 
+     whole = base.peak_bytes
++    if whole <= budget and whole_mesh_store not in (None, base.wfc_store):
++        # A second estimate and not a term added to the first: the store moves
++        # three lines (the set itself, the start's span, ``solve_block``). It is
++        # taken only where the streamed whole mesh fits, since the store on the
++        # device is never the smaller of the two.
++        whole = estimate_size(
++            system, pseudos, nbnd=nbnd, k_batch=None, davidson_basis=davidson_basis,
++            band_batch=band_batch, projectors=projectors, wfc_store=whole_mesh_store,
++        ).peak_bytes
+     if whole <= budget:
+         return KBatchChoice(k_batch=None, fits=True, estimate=int(whole),
+                             available=int(available), headroom=headroom)
+     nk = base.nk
++    if nk == 1:
++        # One k-point is the whole mesh, so there is no smaller chunk to try.
++        return KBatchChoice(k_batch=1, fits=False, estimate=int(whole),
++                            available=int(available), headroom=headroom)
+     # The peak grows with the chunk, so the largest that fits is found by
+     # bisection, and among the chunks no larger that need the same number of
+     # calls the one with the least padding is ceil(nk / calls).
+diff --git a/tests/unit/test_fit_store.py b/tests/unit/test_fit_store.py
+new file mode 100644
+index 00000000..7a8f807e
+--- /dev/null
++++ b/tests/unit/test_fit_store.py
+@@ -0,0 +1,177 @@
++"""The card choosers price a run with the store that run takes (audit 2026-11-20c #23).
++
++In memory mode on a card the preset streams the wavefunction store, and the
++SCF keeps that stream only where the k-chunk is smaller than the mesh
++(:func:`~defuqumat.batching.resolve_scf_wfc_store`): with every k-point in
++flight the store is on the device. ``k_batch = 'fit'`` and the band-batch
++chooser priced the whole mesh as a streamed chunk all the same, so their
++estimate was ``wf_spin`` wavefunction sets below the one
++:meth:`~defuqumat.calculator.Calculator.estimate` gives for the same run, and a
++card whose free memory fell between the two was handed a run that does not fit.
++
++Arithmetic only, on the CPU: the backend is said to be a card, and the device's
++free memory is a number the test chooses.
++"""
++
++import warnings
++
++import pytest
++
++from defuqumat import batching
++from defuqumat.scf.driver import resolve_band_batch_for, resolve_k_batch_for
++from defuqumat.sizing import SPEED_HEADROOM, choose_k_batch, estimate_size
++from tests.unit.test_k_budget import SILICON, _calculator
++
++pytestmark = pytest.mark.unit
++
++#: Memory mode's dials on a card, beside the store.
++DIALS = {"band_batch": None, "projectors": "rebuild"}
++
++#: The same silicon on one k-point, where one k-point a call is the whole mesh.
++ONE_POINT = SILICON.replace(" 4 4 4 0 0 0", " 1 1 1 0 0 0")
++
++
++def _a_card_with(free_bytes, monkeypatch):
++    """A card whose allocator has ``free_bytes`` left, as the choosers ask it."""
++    import jax
++
++    class Device:
++        def memory_stats(self):
++            return {"bytes_limit": int(free_bytes), "bytes_in_use": 0}
++
++    monkeypatch.setattr(batching, "_backend", lambda: "gpu")
++    monkeypatch.setattr(jax, "local_devices", lambda *args, **kwargs: [Device()])
++    for name in ("DEFUQUMAT_K_BATCH", "DEFUQUMAT_BAND_BATCH", "DEFUQUMAT_WFC_STORE",
++                 "DEFUQUMAT_MEMORY_MODE"):
++        monkeypatch.delenv(name, raising=False)
++
++
++def _whole_mesh(system, pseudos, store, **dials):
++    return estimate_size(system, pseudos, k_batch=None, wfc_store=store,
++                         **{**DIALS, **dials})
++
++
++def _between(low, high):
++    """Free memory whose budget holds ``low`` bytes and not ``high``."""
++    free = int((low + (high - low) // 2) / SPEED_HEADROOM)
++    assert low <= SPEED_HEADROOM * free < high
++    return free
++
++
++def test_the_stream_misses_the_store_of_a_whole_mesh(pseudo_dir):
++    """The size of the gap, which is the finding's number: ``wf_spin * S``."""
++    calculator = _calculator(pseudo_dir)
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = _whole_mesh(system, pseudos, "stream")
++    device = _whole_mesh(system, pseudos, "device")
++    one_set = stream.nk * stream.nbnd * stream.npwx * 16
++    assert (stream.nk, int(system.nspin)) == (64, 1)
++    assert device.peak_bytes - stream.peak_bytes == one_set
++
++
++def test_fit_prices_the_whole_mesh_with_the_store_on_the_device(pseudo_dir, monkeypatch):
++    """Between the two estimates the whole mesh used to be taken, and does not fit."""
++    calculator = _calculator(pseudo_dir, memory_mode="memory")
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = _whole_mesh(system, pseudos, "stream")
++    device = _whole_mesh(system, pseudos, "device")
++    nk = stream.nk
++    free = _between(stream.peak_bytes, device.peak_bytes)
++    budget = SPEED_HEADROOM * free
++    _a_card_with(free, monkeypatch)
++
++    chunk = resolve_k_batch_for("fit", "memory", system, pseudos)
++    assert chunk is not None and chunk < nk, (
++        "the whole mesh does not fit with its store on the device")
++    assert resolve_k_batch_for("default", "memory", system, pseudos) == chunk
++    # The run the chooser hands over fits, priced with the store it takes ...
++    store = batching.resolve_scf_wfc_store("default", "memory", chunk, nk)
++    assert store == "stream"
++    run = estimate_size(system, pseudos, k_batch=chunk, wfc_store=store, **DIALS)
++    assert run.peak_bytes <= budget
++    # ... and the size report describes that same run.
++    report = calculator.estimate()
++    assert (report.k_batch, report.wfc_store) == (chunk, "stream")
++    assert report.peak_bytes == run.peak_bytes
++
++    # With room for the store the whole mesh is still the choice.
++    roomy = int((device.peak_bytes + 1) / SPEED_HEADROOM)
++    _a_card_with(roomy, monkeypatch)
++    assert resolve_k_batch_for("fit", "memory", system, pseudos) is None
++    report = calculator.estimate()
++    assert (report.k_batch, report.wfc_store) == (nk, "device")
++    assert report.peak_bytes == device.peak_bytes <= SPEED_HEADROOM * roomy
++
++
++def test_a_stream_asked_for_in_the_environment_is_priced_as_a_stream(
++        pseudo_dir, monkeypatch):
++    """What ``DEFUQUMAT_WFC_STORE`` says is kept by the SCF, so it is kept here."""
++    calculator = _calculator(pseudo_dir)
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = _whole_mesh(system, pseudos, "stream")
++    device = _whole_mesh(system, pseudos, "device")
++    _a_card_with(_between(stream.peak_bytes, device.peak_bytes), monkeypatch)
++    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "stream")
++    assert resolve_k_batch_for("fit", "memory", system, pseudos) is None
++
++
++def test_the_chooser_alone_prices_every_candidate_at_one_store(pseudo_dir):
++    """``whole_mesh_store`` left out is the chooser as it was."""
++    calculator = _calculator(pseudo_dir)
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = _whole_mesh(system, pseudos, "stream")
++    device = _whole_mesh(system, pseudos, "device")
++    free = _between(stream.peak_bytes, device.peak_bytes)
++    plain = choose_k_batch(system, pseudos, available=free)
++    assert plain.k_batch is None and plain.estimate == stream.peak_bytes
++    priced = choose_k_batch(system, pseudos, available=free, whole_mesh_store="device")
++    assert priced.k_batch == 32 and priced.fits, "two calls, no padding"
++    assert priced.estimate == stream.at_k_batch(32).peak_bytes
++
++
++@pytest.mark.parametrize("k_batch", [None, 64, "all"])
++def test_the_band_batch_of_a_whole_mesh_is_priced_with_the_store_on_the_device(
++        k_batch, pseudo_dir, monkeypatch):
++    """``k_batch=None``, a chunk of ``nk`` and ``DEFUQUMAT_K_BATCH=all``."""
++    calculator = _calculator(pseudo_dir)
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = _whole_mesh(system, pseudos, "stream")
++    device = _whole_mesh(system, pseudos, "device")
++    _a_card_with(_between(stream.peak_bytes, device.peak_bytes), monkeypatch)
++    if k_batch == "all":
++        monkeypatch.setenv("DEFUQUMAT_K_BATCH", "all")
++        k_batch = "default"
++    with pytest.warns(RuntimeWarning, match="whole band block does not fit"):
++        bands = resolve_band_batch_for("default", "memory", system, pseudos,
++                                       k_batch=k_batch)
++    assert bands is not None and bands < stream.nbnd
++    assert device.at_band_batch(bands).peak_bytes <= SPEED_HEADROOM * _between(
++        stream.peak_bytes, device.peak_bytes)
++
++
++def test_one_k_point_is_a_whole_mesh(pseudo_dir, monkeypatch):
++    """At ``nk = 1`` one k-point a call has every k-point in flight."""
++    from defuqumat.calculator import Calculator
++
++    with warnings.catch_warnings():
++        warnings.simplefilter("ignore")
++        calculator = Calculator.from_text(ONE_POINT, pseudo_dir, announce=False)
++    system, pseudos = calculator.system, calculator.pseudos
++    stream = estimate_size(system, pseudos, k_batch=1, wfc_store="stream", **DIALS)
++    device = estimate_size(system, pseudos, k_batch=1, wfc_store="device", **DIALS)
++    assert stream.nk == 1 and device.peak_bytes > stream.peak_bytes
++    free = _between(stream.peak_bytes, device.peak_bytes)
++    _a_card_with(free, monkeypatch)
++    assert batching.resolve_scf_wfc_store("default", "memory", 1, 1) == "device"
++    with pytest.warns(RuntimeWarning, match="whole band block does not fit"):
++        bands = resolve_band_batch_for("default", "memory", system, pseudos)
++    assert bands is not None
++    assert device.at_band_batch(bands).peak_bytes <= SPEED_HEADROOM * free
++
++    # On a mesh, one k-point a call streams, and is priced as the stream it is.
++    mesh = _calculator(pseudo_dir)
++    one = estimate_size(mesh.system, mesh.pseudos, k_batch=1, wfc_store="stream", **DIALS)
++    _a_card_with(int((one.peak_bytes + 1) / SPEED_HEADROOM), monkeypatch)
++    with warnings.catch_warnings():
++        warnings.simplefilter("error")
++        assert resolve_band_batch_for("default", "memory", mesh.system, mesh.pseudos) is None

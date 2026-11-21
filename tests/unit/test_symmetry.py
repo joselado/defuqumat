@@ -1,5 +1,7 @@
 """Space-group detection and density symmetrisation."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -364,3 +366,68 @@ def test_the_symmetry_phases_follow_the_density_dtype():
     phases = jnp.asarray(np.exp(-2j * np.pi * np.linspace(0, 1, 10)).reshape(2, 5))
     assert phases.dtype == jnp.complex128
     assert apply_symmetry_maps(rho_g, permutations, phases).dtype == jnp.complex64
+
+
+@pytest.mark.parametrize("walk", [False, True])
+def test_every_group_average_keeps_a_single_precision_field_single(walk, monkeypatch):
+    """The phases (complex128) and the rotations (float64) follow the field (audit 2026-11-20 #40).
+
+    The scalar average was fixed by ``traps`` F1; the vector, spin-vector,
+    displacement and strain averages took the same tables uncast, so a
+    complex64 magnetization came back complex128. Both routes, the batched
+    gather and the walk over the operations.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.system import symmetry
+
+    monkeypatch.setenv("DEFUQUMAT_GATHER_BUDGET", "0" if walk else "1000")
+    rng = np.random.default_rng(0)
+    nsym, ngm, nat = 2, 5, 2
+    permutations = jnp.asarray(np.array([[0, 1, 2, 3, 4], [1, 0, 2, 4, 3]]))
+    phases = jnp.asarray(np.exp(-2j * np.pi * rng.random((nsym, ngm))))
+    rotations = np.stack([np.eye(3), np.diag([-1.0, -1.0, 1.0])])
+    mapping = np.array([[0, 1], [1, 0]])
+
+    def field(*shape):
+        return jnp.asarray(rng.normal(size=shape + (ngm,)), dtype=jnp.complex64)
+
+    results = [
+        symmetry.apply_symmetry_maps(field(), permutations, phases),
+        symmetry.symmetrize_vector_density(field(3), permutations, phases, rotations),
+        symmetry.symmetrize_spin_vector_density(
+            field(3, 3), permutations, phases, rotations, rotations),
+        symmetry.symmetrize_atom_displacement_density(
+            field(nat, 3), permutations, phases, rotations, mapping),
+        symmetry.symmetrize_atom_displacement_spin_density(
+            field(nat, 3, 3), permutations, phases, rotations, rotations, mapping),
+        symmetry.symmetrize_tensor_density(field(3, 3), permutations, phases, rotations),
+    ]
+    assert [r.dtype for r in results] == [jnp.complex64] * len(results)
+
+
+def test_a_single_precision_spinor_density_is_symmetrised_in_single(pseudo_dir):
+    """``Calculation.symmetrize`` at ``nspin_mag = 4`` on a ``precision=SINGLE`` cell.
+
+    The charge went through the cast scalar average and the magnetization did
+    not, so the concatenation promoted the charge back and the whole density
+    left in float64 (audit 2026-11-20 #40). Checked by shape only, nothing runs.
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from defuqumat import SINGLE
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.pseudo.upf import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system.builder import build_system
+
+    text = (Path(__file__).parents[1] / "data" / "qe" / "h-sheet-noncolin.in").read_text()
+    text = text.replace("nosym = .true.", "").replace(
+        "angle1(1) = 90.0, angle2(1) = 40.0", "angle1(1) = 0.0, angle2(1) = 0.0")
+    system = build_system(parse_pw_input(text), precision=SINGLE)
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    assert calculation.nspin_mag == 4 and calculation.symmetries.nsym > 1
+    rho = jnp.zeros((4,) + tuple(calculation.basis.dense.grid), dtype=jnp.float32)
+    assert jax.eval_shape(calculation.symmetrize, rho).dtype == jnp.float32

@@ -178,16 +178,22 @@ __all__ = ["davidson_eigensolver", "davidson_eigensolver_all", "DAVID_NDIM",
 #: cache, not in the flop count, and the band loop had already collected it.
 DAVID_NDIM = 4
 
-#: Total budget of Davidson steps, matching QE's.
+#: Total budget of Davidson steps.
 #:
-#: ``cegterg``'s own ``maxter`` is 20, but ``c_bands.f90`` re-enters it up to
-#: five times (``ntry <= 5`` in ``test_exit_cond``), each time seeded with the
-#: current estimate -- so QE's real budget is 100 steps. Re-entering is the same
-#: operation as the subspace collapse this loop already performs when the basis
-#: fills up, so one loop of 100 reproduces it without the outer level. It costs
-#: nothing when the solve converges early, which inside an SCF it always does:
-#: the budget is only reached on a cold start, and on the band-structure runs
-#: where there is no SCF to spread the convergence over.
+#: ``cegterg``'s own ``maxter`` is 20, and ``c_bands.f90`` re-enters it while
+#: ``ntry <= 5`` in ``test_exit_cond``, each time seeded with the current
+#: estimate. ``ntry`` is counted before the test (``c_bands.f90:880-884``), so
+#: that is six calls and 120 steps outside an SCF, not 100. Inside an SCF
+#: ``pw.x`` re-enters only while more than five bands are unconverged, and with
+#: one to five it moves on to the density; this loop does not do that, and runs
+#: every call until each band settles or the budget is spent (audit 2026-11-20b
+#: #9, held for the user). Re-entering is the same operation as the subspace
+#: collapse this loop already performs when the basis fills up, so one loop
+#: reproduces it without the outer level. The budget is 100 for every caller.
+#: It costs nothing when the solve converges early, which inside an SCF it
+#: does on the benchmark cells measured (1 to 4 steps a call on si8-1k, si16-1k and
+#: si8-us-1k): it is reached on a cold start at a tight threshold, on the
+#: band-structure runs, and inside an SCF by a solve that stalls.
 MAX_ITERATIONS = 100
 
 #: Root-improvement threshold used when the caller does not supply one -- a
@@ -230,13 +236,41 @@ def tangent_width(ethr):
     """The width the subspace solve's tangent is regularised at (P148).
 
     ``subspace._eigh_regularised`` bounds the mixing kernel at ``1/(2 eta)``,
-    and ``eta`` is the solver's own unit, ``empty_ethr = max(5 ethr, 1e-5)``,
     since the members of a degenerate block are converged separately only to
-    the promise on them. A per-band vector carries that unit as its largest
-    entry only when the row has an empty band (``cegterg.f90:129``); a row with
-    every band occupied, or ``diago_full_acc``, holds the bare ``ethr``, down to
-    1e-13, which turned the bound off. So the floor is applied to the vector too
-    (audit 2026-11-15, ``hamiltonian`` F1). Traced, so it rides ``ethr``'s slot.
+    the promise on them. The two forms of ``ethr`` are read differently:
+
+    * a scalar is the bare ``ethr``, and ``eta`` is the solver's own unit,
+      ``empty_ethr = max(5 ethr, 1e-5)``;
+    * a per-band vector is read as **already scaled**: ``eta = max(max(ethr),
+      1e-5)``, with no factor of 5. Its largest entry is ``empty_ethr`` only
+      when the row has an empty band (``cegterg.f90:129``), and then the two
+      forms agree. A row with every band occupied, or ``diago_full_acc``, holds
+      the bare ``ethr``, so there ``eta = max(ethr, 1e-5)`` against the
+      scalar's ``max(5 ethr, 1e-5)``: five times smaller for ``ethr`` at or
+      above 1e-5, between one and five times for ``ethr`` from 2e-6 to 1e-5,
+      and equal below. ``tangent_width(jnp.full(4, 1e-4))`` is 1e-4 and
+      ``tangent_width(1e-4)`` is 5e-4.
+
+    **Every production solve takes the vector branch.**
+    :func:`davidson_eigensolver_all` broadcasts ``ethr`` to ``(nk, nbnd)`` and
+    :func:`_every_k` hands each k-point its row, so a scalar from the caller
+    arrives here as a row of the bare ``ethr``, and the width is
+    ``max(ethr, 1e-5)``. That is the case of the Newton residual
+    (``scf/residual.py``), which passes a scalar and is differentiated under
+    ``jvp = 'autodiff'``. The scalar branch is reached only by a direct call to
+    :func:`davidson_eigensolver`, or to :func:`_every_k` with a scalar, and no
+    module of the package makes either (``tools/benchmark.py``,
+    ``tools/gpu/davidson_profile.py`` and ``test_empty_band_threshold.py`` do,
+    undifferentiated). The two widths differ
+    only for ``ethr`` above 2e-6, so at the Newton default (``ethr`` 1e-11 at
+    ``conv_thr`` 1e-8) both are 1e-5 (audit 2026-11-20b #20). The floor on the
+    vector was added on 2026-11-15 (audit ``hamiltonian`` F1, ``d719e1aa``),
+    since the bare 1e-13 turned the bound off. Its record said that no
+    differentiated caller passes a vector and so no derivative moved; that is
+    false, since before it the Newton autodiff tangent was regularised at the
+    bare ``ethr`` (1e-11 at ``conv_thr`` 1e-8) and after it at 1e-5.
+
+    Traced, so it rides ``ethr``'s slot.
     """
     ethr = jnp.asarray(ethr)
     if jnp.ndim(ethr) == 0:

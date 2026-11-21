@@ -127,3 +127,31 @@ def test_spinor_density_is_the_same_in_chunks():
         ",\n  noncolin = .true., nosym = .true., noinv = .true.,\n"
         "  starting_magnetization(1) = 0.5, angle1(1) = 45.0, angle2(1) = 30.0")
     _compare_density(calculation, chunk=4)
+
+
+def test_the_default_chunk_is_balanced_over_the_planes(monkeypatch):
+    """The default chunk leaves fewer zero planes than chunks (audit 2026-11-20b #8).
+
+    The padded planes are zero and still go through both ``xy`` transforms. On
+    si8-1k's 24^3 grid the byte budget is 17 planes, which took 34 planes
+    through the transforms for 24; the balanced chunk is 12, with none. The
+    budget is still the upper bound, and an explicit count is taken as asked.
+    """
+    on_a_cpu(monkeypatch)
+    monkeypatch.delenv("DEFUQUMAT_PLANE_CHUNK", raising=False)
+    assert int(PLANE_CHUNK_BYTES // (24 * 24 * 16 * 2.5)) == 17
+    assert resolve_plane_chunk((24, 24, 24), 16) == 12
+    assert resolve_plane_chunk((36, 36, 36), 16) == 6
+    assert resolve_plane_chunk((24, 24, 48), 16) == 16
+    assert resolve_plane_chunk((36, 36, 144), 16) == 7
+    for n3 in range(1, 300):
+        for n1 in (12, 24, 36, 48, 72):
+            budget = max(1, min(n3, int(PLANE_CHUNK_BYTES // (n1 * n1 * 16 * 2.5))))
+            chunk = resolve_plane_chunk((n1, n1, n3), 16)
+            nchunks = -(-n3 // chunk)
+            assert 1 <= chunk <= budget
+            assert nchunks == -(-n3 // budget)
+            assert nchunks * chunk - n3 < nchunks
+    assert resolve_plane_chunk((24, 24, 24), 16, requested=17) == 17
+    monkeypatch.setenv("DEFUQUMAT_PLANE_CHUNK", "17")
+    assert resolve_plane_chunk((24, 24, 24), 16) == 17

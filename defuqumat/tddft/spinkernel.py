@@ -234,7 +234,17 @@ def transverse_kernel_field(
     safe = jnp.where(polarized, magnetization, 1.0)
     ratio = field / safe
 
-    limit = node_limit(calculation.functional, charge)
+    # **The limit at the density ``B_xc`` was built at**, which under a
+    # nonlinear core correction is the valence plus the core: ``exchange_field``
+    # evaluates the functional at ``n + n_core``, so the ratio tends to
+    # ``dB/dm`` there, and the limit at the valence alone is a step at the
+    # window (local exchange scales as ``n^(-2/3)``, so 1.59x where the core
+    # equals the valence; AUDIT-2026-11-20b #15). The masks stay on the
+    # valence density, which is what ``m`` is measured against.
+    total = charge
+    if calculation.rho_core is not None:
+        total = charge + jnp.real(jnp.asarray(calculation.rho_core))
+    limit = node_limit(calculation.functional, total)
     return jnp.where(dense, jnp.where(polarized, ratio, limit), 0.0)
 
 

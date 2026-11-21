@@ -91,7 +91,10 @@ is refused here, through the same functions. A *shifted* grid is refused because
 it is not closed under the point group, so neither running it whole nor
 symmetrising a wedge of it is sound (P24).
 
-**A symmetry-reduced wedge is not refused any more** (``PLAN.md`` P36). A Raman
+**A symmetry-reduced wedge is not refused any more** (``PLAN.md`` P36), except
+for a PAW dataset
+(:func:`~defuqumat.response.electrostriction.require_a_whole_grid_for_paw`,
+audit 2026-11-20c #2). A Raman
 tensor carries two field labels and an atom, so its wedge sum is incomplete in
 all three and is completed by ``symme.f90``'s ``symtensor3`` --
 :func:`~defuqumat.system.symmetry.symmetrize_atom_cartesian_tensor`, applied to
@@ -124,6 +127,7 @@ from defuqumat.response.electrostriction import (
     _second_order_energy_at,
     field_blocks,
     refined_states,
+    require_a_whole_grid_for_paw,
 )
 from defuqumat.response.phonon import (
     DisplacementResponse,
@@ -468,6 +472,10 @@ def raman_tensors(
     # that closes both coordinates, and what excluded it was that the test's
     # reference was a single step. It is two steps and an extrapolation now.
     _require_a_moving_overlap_regime(calculation)
+    # A PAW wedge is refused for the strain coordinate's reason, which is
+    # this coordinate's too: ``D`` inside ``F`` is built from the raw wedge
+    # ``becsum``.
+    require_a_whole_grid_for_paw(calculation, "the Raman tensors")
 
     # **The route is decided before the states are touched**, by the field
     # response's rule (:func:`~defuqumat.response.efield._streams`): where it walks

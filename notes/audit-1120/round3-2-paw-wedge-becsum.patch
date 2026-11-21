@@ -1,0 +1,135 @@
+diff --git a/defuqumat/response/chunked_third.py b/defuqumat/response/chunked_third.py
+index 03178fe1..f97d6bcf 100644
+--- a/defuqumat/response/chunked_third.py
++++ b/defuqumat/response/chunked_third.py
+@@ -157,7 +157,8 @@ def _third_passes(calculation, key, kind, project) -> dict:
+     """The compiled passes, built once and cached on the calculation."""
+     from defuqumat.response.efield import _solve_stored, ultrasoft_position
+     from defuqumat.response.electrostriction import (
+-        _project_conduction, position_residual, second_order_band_terms,
++        _project_conduction, full_zone_becsum, full_zone_becsum_responses,
++        position_residual, second_order_band_terms,
+     )
+ 
+     cached = calculation.__dict__.get("_streamed_response")
+@@ -225,6 +226,7 @@ def _third_passes(calculation, key, kind, project) -> dict:
+         def whole(y, r, parts_and_responses):
+             parts, responses = parts_and_responses
+             moved = _move(sub, kind, y)
++            parts = full_zone_becsum(sub, moved, parts)
+             v = moved.potential(r).v_scf
+             ddd = None if moved.paw is None else moved.onecenter(parts)[1]
+             fields = jnp.stack([
+@@ -237,7 +239,8 @@ def _third_passes(calculation, key, kind, project) -> dict:
+                 for axis in range(3)])
+             measure = moved.system.cell.volume / r.size * r.shape[0]
+             if moved.paw is not None:
+-                dbecsum = [becsum_part for _, becsum_part in responses]
++                dbecsum = full_zone_becsum_responses(
++                    sub, moved, [becsum_part for _, becsum_part in responses])
+                 blocks = [jnp.stack([
+                     moved.augmentation.block_matrix(
+                         tuple(None if b is None else b[spin] for b in dbecsum[axis]))
+diff --git a/defuqumat/response/electrostriction.py b/defuqumat/response/electrostriction.py
+index 4576a56a..3795d03e 100644
+--- a/defuqumat/response/electrostriction.py
++++ b/defuqumat/response/electrostriction.py
+@@ -371,6 +371,60 @@ def refined_states(calculation, result, ethr: float = REFINE_ETHR,
+ # -- the variational second-order energy -------------------------------------
+ 
+ 
++def _split(raw, symmetrise):
++    """``symmetrise`` of ``raw``'s value, with ``raw``'s own tangent.
++
++    The value/derivative split of the screening term below, on a ``becsum``
++    pytree (``None`` for a species with no projectors).
++    """
++    frozen = jax.tree_util.tree_map(jax.lax.stop_gradient, raw)
++    averaged = symmetrise(frozen)
++    return jax.tree_util.tree_map(lambda s, r, f: s + (r - f), averaged, raw, frozen)
++
++
++def full_zone_becsum(group, moved, raw):
++    """The ground-state ``becsum`` a PAW wedge's one-centre terms are built from.
++
++    ``PAW_symmetrize`` on the value, and the raw wedge sum as the tangent. On a
++    wedge the raw sum is not the ground state's ``becsum`` (0.188 apart on
++    PAW silicon's three-point wedge), so ``D = onecenter(raw)`` is not the
++    ``D`` the states are eigenvectors of. The raw tangent is the same choice
++    the screening term makes for ``drho``. Returned unchanged when ``moved``
++    has no PAW species or ``group`` no average, so a norm-conserving, an
++    ultrasoft or a ``nosym`` run does not move.
++    """
++    if moved.paw is None or getattr(group, "_becsum_symmetry", None) is None:
++        return raw
++    out = _split(raw, group.finish_becsum)
++    if _INJECT is not None:
++        # EXPERIMENT: the full-zone tangent of becsum along the displacement,
++        # injected through a linear function of the positions that is zero at x0.
++        x0, stacks = _INJECT
++        dx = moved.system.structure.positions - x0
++        frozen = jax.tree_util.tree_map(jax.lax.stop_gradient, out)
++        out = tuple(None if f is None else f + jnp.einsum("ac,ac...->...", dx, t)
++                    for f, t in zip(frozen, stacks))
++    return out
++
++
++_INJECT = None
++
++
++def full_zone_becsum_responses(group, moved, per_axis):
++    """The three field responses of ``becsum``, full zone in value, raw in tangent.
++
++    ``PAW_dusymmetrize`` (:func:`~defuqumat.response.efield.
++    _symmetrize_becsum_response`) on the value. The one-centre screening term
++    is quadratic in them, so it takes the split the grid screening term takes.
++    """
++    if moved.paw is None or getattr(group, "_becsum_symmetry", None) is None:
++        return per_axis
++    from defuqumat.response.efield import _symmetrize_becsum_response
++
++    return _split(list(per_axis),
++                  lambda frozen: _symmetrize_becsum_response(group, frozen))
++
++
+ def _second_order_energy_at(moved, psi, rho, b, u, weights, reference=None):
+     """``F_ij`` on an already-strained calculation. See :func:`second_order_energy`.
+ 
+@@ -385,11 +439,12 @@ def _second_order_energy_at(moved, psi, rho, b, u, weights, reference=None):
+             the cell alone.
+     """
+     batch = moved.k_batch
++    group = moved if reference is None else reference
+     # ``becsum`` at the *moved* geometry, from the ground-state states: it is
+     # what the augmentation charge inside ``rho`` is built from and what PAW's
+     # one-centre coefficients come from, and freezing either as an array would
+     # delete the dependence a second derivative is made of.
+-    parts = mixed_becsum(moved, psi, weights)
++    parts = full_zone_becsum(group, moved, mixed_becsum(moved, psi, weights))
+     _, ddd_paw = moved.onecenter(parts)
+     hamiltonians = moved.hamiltonian(moved.potential(rho).v_scf, ddd_paw)
+     terms, pcu = second_order_band_terms(hamiltonians, psi, b, u, weights, batch)
+@@ -403,11 +458,11 @@ def _second_order_energy_at(moved, psi, rho, b, u, weights, reference=None):
+     # dielectric constant to 1.8e-3 where an ultrasoft dataset reaches 3e-10.
+     onecentre = None
+     if moved.paw is not None:
+-        dbecsum = [
++        dbecsum = full_zone_becsum_responses(group, moved, [
+             compiled_jvp(lambda states: mixed_becsum(moved, states, weights),
+                     (psi,), (pcu[axis],))[1]
+             for axis in range(3)
+-        ]
++        ])
+         blocks = [
+             jnp.stack([
+                 moved.augmentation.block_matrix(
+@@ -692,7 +747,8 @@ def _position_response(calculation, solver, rho, b, tangent, dpsi, drho,
+         """The moved cell and the two operators both halves are built from."""
+         moved = moved_at(geometry)
+         v_scf = moved.potential(density).v_scf
+-        parts = mixed_becsum(moved, states, weights)
++        parts = full_zone_becsum(calculation, moved,
++                                 mixed_becsum(moved, states, weights))
+         _, ddd_paw = moved.onecenter(parts)
+         return (moved, VelocityOperator(moved, v_scf, ddd_paw),
+                 moved.hamiltonian(v_scf, ddd_paw))

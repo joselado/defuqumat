@@ -179,10 +179,11 @@ def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
     from types import SimpleNamespace
 
     def stub(ultrasoft=False, noncolin=False, spiral=False, hubbard=None, meta=False,
-             constraint="none", field=None, berry=None):
+             constraint="none", field=None, berry=None, sawtooth=None):
         return SimpleNamespace(
             pseudos=(SimpleNamespace(is_ultrasoft=ultrasoft),), noncolin=noncolin,
             spiral=spiral, hubbard=hubbard, magnetic_field=field, berry_field=berry,
+            sawtooth=sawtooth,
             functional=SimpleNamespace(is_meta=meta, name="tb09"), band_precision=SINGLE,
             system=SimpleNamespace(ecutwfc=20.0, constrained_magnetization=constraint),
             SINGLE_ETHR_FACTOR=Calculation.SINGLE_ETHR_FACTOR,
@@ -202,7 +203,8 @@ def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
     for refused, name in ((stub(noncolin=True, constraint="atomic"), "'atomic'"),
                           (stub(noncolin=True, constraint="total"), "'total'"),
                           (stub(field=object()), "magnetic field"),
-                          (stub(berry=object()), "Berry-phase")):
+                          (stub(berry=object()), "Berry-phase"),
+                          (stub(sawtooth=object()), "saw-tooth")):
         with pytest.raises(NotImplementedError, match=name):
             guard(refused)
 
@@ -336,6 +338,25 @@ def test_a_constrained_spinor_is_refused_in_single_precision(pseudo_dir, tmp_pat
         Calculation(system, pseudos, band_precision="single")
 
 
+def test_a_sawtooth_field_is_refused_in_single_precision(pseudo_dir, tmp_path):
+    """``tefield`` has no number in single precision (audit 2026-11-20b #34).
+
+    I119 measured each regime it lifted and refused the constraint, the applied
+    field and the Berry-phase field, which landed an order of magnitude further
+    from their double state than the SCF's own error. The saw-tooth sat beside
+    them unrefused and unmeasured. The same cell runs in double, and without the
+    field in single.
+    """
+    path = CASES / "h2-box-tefield.in"
+    system, pseudos = _edited(pseudo_dir, tmp_path, path, ())
+    with pytest.raises(NotImplementedError, match="saw-tooth"):
+        Calculation(system, pseudos, band_precision="single")
+    Calculation(system, pseudos)
+    system, pseudos = _edited(pseudo_dir, tmp_path, path,
+                              (("tefield = .true.", "tefield = .false."),))
+    Calculation(system, pseudos, band_precision="single")
+
+
 def _continuation_stub(miss, precision):
     from types import SimpleNamespace
 
@@ -382,6 +403,103 @@ def test_the_anisotropy_legs_are_refused_on_a_single_band_side(silicon, monkeypa
     monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
     with pytest.raises(NotImplementedError, match="force-theorem anisotropy or torque"):
         getattr(anisotropy, workflow)(system, pseudos, None)
+
+
+class _Solved(Exception):
+    """Raised where the fixed-density solve would start."""
+
+
+#: One iodine atom turned by a spiral on a fully-relativistic norm-conserving
+#: dataset at ``soc_scale = 0``: the cell of ``tests/unit/test_spiral_soc.py``,
+#: which passes every refusal of ``spiral_spin_orbit_energy``.
+_IODINE_SPIRAL = """
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 1, celldm(1) = 8.0, nat = 1, ntyp = 1, ecutwfc = 15.0, nbnd = 8,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.05,
+    noncolin = .true., lspinorb = .true., soc_scale = 0.0, nosym = .true.,
+    starting_magnetization(1) = 0.5, angle1(1) = 90.0,
+    spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 0.25
+ /
+ATOMIC_SPECIES
+ I 126.9 I.rel-pbe-nc-dojo.UPF
+ATOMIC_POSITIONS crystal
+ I 0.00 0.00 0.00
+K_POINTS (automatic)
+ 1 1 2 0 0 0
+"""
+
+
+def _fixed_density_leg(pseudo_dir, workflow):
+    """A cell the leg's own refusals let through, and the call that runs it."""
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.workflows import anisotropy, spiral_soc
+
+    if workflow == "spiral_spin_orbit_energy":
+        system = build_system(parse_pw_input(_IODINE_SPIRAL))
+    else:
+        cases = Path(__file__).resolve().parents[1] / "data" / "qe"
+        system = build_system(parse_pw_input(
+            (cases / "co-tetragonal-anisotropy-soc.in").read_text()))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    density = np.zeros((2, 4, 4, 4))
+    density[0] = 1.0
+    if workflow == "spiral_spin_orbit_energy":
+        return system, pseudos, lambda **options: spiral_soc.spiral_spin_orbit_energy(
+            system, pseudos, None, **options)
+    return system, pseudos, lambda: getattr(anisotropy, workflow)(system, pseudos, density)
+
+
+@pytest.fixture
+def solve_stops(monkeypatch):
+    from defuqumat.workflows import anisotropy, nscf
+
+    def sentinel(*args, **options):
+        raise _Solved()
+
+    monkeypatch.setattr(anisotropy, "fixed_density_states", sentinel)
+    monkeypatch.setattr(nscf, "fixed_density_states", sentinel)
+
+
+@pytest.mark.parametrize("workflow", ["relax_orientation", "frozen_expectation",
+                                      "spiral_spin_orbit_energy"])
+@pytest.mark.parametrize("mode", ["single", "mixed"])
+def test_the_other_fixed_density_legs_are_refused_on_a_single_band_side(
+        pseudo_dir, monkeypatch, solve_stops, workflow, mode):
+    """Three entry points reached the solve with no gate (audit 2026-11-20c #14).
+
+    ``relax_orientation`` calls ``_orientation_torque`` and not the gated
+    ``run_orientation_torque``; ``frozen_expectation`` and
+    ``spiral_spin_orbit_energy`` never called the gate. Each cell passes the
+    leg's own refusals, so in double the call stops at the solve, and with
+    ``DEFUQUMAT_BAND_PRECISION`` at ``single`` or ``mixed`` it must not get there.
+    """
+    _, _, call = _fixed_density_leg(pseudo_dir, workflow)
+    with pytest.raises(_Solved):
+        call()
+    monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", mode)
+    with pytest.raises(NotImplementedError, match="band side in single precision"):
+        call()
+
+
+def test_the_spiral_first_order_reads_the_precision_of_the_calculation_it_is_given(
+        pseudo_dir, monkeypatch, solve_stops):
+    """``Calculator.get_spiral_spin_orbit_energy`` hands its own calculation over.
+
+    The band side is then that object's, whatever the environment says: a
+    single one is refused with no variable set, and a double one runs with the
+    variable at ``single``.
+    """
+    system, pseudos, call = _fixed_density_leg(pseudo_dir, "spiral_spin_orbit_energy")
+    single = Calculation(system, pseudos, band_precision="single")
+    with pytest.raises(NotImplementedError, match="band side in single precision"):
+        call(calculation=single)
+    double = Calculation(system, pseudos, band_precision="double")
+    monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
+    with pytest.raises(_Solved):
+        call(calculation=double)
 
 
 def test_a_spiral_scan_point_stays_in_single_precision(pseudo_dir, tmp_path):

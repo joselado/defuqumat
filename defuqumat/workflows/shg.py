@@ -153,8 +153,10 @@ def run_shg(
         jnp.asarray(density), 1.0 if field_scale is None else float(field_scale), field,
         tau=tau)
     # PAW's one-centre coefficients are built from ``becsum`` and multiply
-    # ``vkb(k)``, so they belong to ``dH/dk`` as much as to ``H``.
-    _, ddd_paw = calculation.onecenter(becsum)
+    # ``vkb(k)``, so they belong to ``dH/dk`` as much as to ``H``. Under a
+    # potential-only meta-GGA the spheres take this potential's ``c``, as the
+    # band solve's do (audit 2026-11-20c #6).
+    _, ddd_paw = calculation.onecenter(becsum, None if tau is None else potential.meta_c)
 
     # As :func:`~defuqumat.workflows.photocurrent.run_shift_current` resolves
     # it: the broadening or the solver's promise on these states, whichever is

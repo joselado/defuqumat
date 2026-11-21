@@ -37,6 +37,7 @@ from defuqumat.forces.energy import (
     frozen_energy,
     reject_magnetic_field,
     reject_potential_only,
+    reject_tensor_moment_constraint,
     state_from_result,
 )
 from defuqumat.forces.spiral import (
@@ -130,6 +131,7 @@ def compute_forces(calculation, result_or_state, method: str | None = None) -> F
     # a force, and a run under a magnetic field came back with one from either.
     reject_potential_only(calculation)
     reject_magnetic_field(calculation)
+    reject_tensor_moment_constraint(calculation)
     from defuqumat.parallel import PoolStore
 
     if isinstance(state.wavefunctions, PoolStore) and name != "autodiff":

@@ -782,6 +782,33 @@ spinor. A card keeps the whole box: a loop of plane-sized kernels is launch-boun
 `DEFUQUMAT_PLANE_CHUNK` overrides; an SCF gives the same energy and eigenvalues to the last
 digit either way (`tests/unit/test_plane_chunk.py` pins `H psi` to 1e-13).
 
+**The default chunk is balanced over `n3` since 2026-11-20 (audit 2026-11-20b #8, `69c099c9`).**
+The byte budget alone left the last chunk mostly zero planes when it did not divide `n3`, and
+those went through both `xy` transforms: 34 planes for 24 on si8-1k. The default now keeps the
+budget's number of chunks and spreads `n3` over them, `ceil(n3 / ceil(n3 / budget))`, which is
+never more than the budget; an explicit chunk is taken as asked. It is bit-identical in
+`H psi`, the density and the SCF: si8-1k -63.17798906144861 Ry in 7 iterations at chunk 17 and
+at 12, si16-1k -126.35597121581998 Ry in 7 at 17 and at 15, with the same Davidson steps.
+Workstation (Core Ultra 5 225U), `taskset -c 0-3`, `OMP_NUM_THREADS=4`, `MKL_NUM_THREADS=1`,
+both arms in one process, interleaved, warm (two calls discarded per arm), median (quartiles):
+
+| case | before | after |
+|---|---|---|
+| `H psi`, 16 bands of si8-1k, chunk 17 against 12, 21 samples | 6.98 ms (6.77 to 7.23) | 5.72 ms (5.56 to 6.60) |
+| `H psi`, 32 bands of si16-1k, chunk 17 against 15, 21 samples | 22.08 ms (21.32 to 26.97) | 19.64 ms (19.28 to 20.83) |
+| `H psi`, 16 bands of si8-1k-ecut30, chunk 7 against 6, 21 samples | 21.12 ms (20.45 to 23.42) | 20.04 ms (18.60 to 22.75), inside the spread |
+| an SCF iteration of si8-1k, setup included, 7 samples | 57.7 ms (57.5 to 59.0) | 52.9 ms (52.7 to 53.5) |
+| an SCF iteration of si16-1k, setup included, 7 samples | 157.5 ms (157.0 to 159.0) | 151.9 ms (150.3 to 153.3) |
+
+These are internal pairs on four threads, not a pair against `pw.x`. **The CPU times recorded
+before this at the default chunk carried the padded planes on 13 of the 36 benchmark inputs
+and are not retimed**: si8-1k, si8-pbe-1k, si8-smeared-1k, si2-us-1k and si2-paw-1k (34 planes
+transformed, now 24), si8-1k-ecut30 (42, now 36), si16-1k (51, now 45), si32-1k (102, now 90),
+si-1k-ecut40 (36, now 32), si8-nc-1k (27, now 24), pt-so-1k (26, now 20), al-slab (136, now 72)
+and al-slab-v64 (204, now 180). The other 23 keep their chunk (si8-us-1k at 10 of 30, si64-1k
+at 17 of 180, the ecut30 cells from si16 up at 7). A card takes the whole box
+(`resolve_plane_chunk` returns `None` off the CPU), so a time on a card never carried them.
+
 **What it did for the pools**, the same cells and pinning as "k-point pools against `pw.x
 -nk`" above, ms per iteration at six one-core pools, speedup over this code's own one
 core, and that speedup as a share of `pw.x -nk 6`'s:
@@ -3389,6 +3416,16 @@ testable against the trace above with no new `pw.x` run:
   collapse-to-Ritz at `nvecx` is **not** the same thing: it keeps the iteration
   history and the preconditioner state where a re-entry discards them. A periodic
   hard restart is the standard rescue for a stalled Davidson.
+  *Corrected 2026-11-20 (audit 2026-11-20b #9).* `c_bands.f90` re-enters `cegterg` while
+  `ntry <= 5` at `maxter = 20`, counted before the test, so six calls and 120 steps outside
+  an SCF, each re-entry restarting Davidson from the current `evc` with a fresh subspace;
+  inside an SCF it re-enters only while more than five bands are unconverged. So QE's
+  budget is 120 steps and not 100 outside an SCF, and inside one `pw.x` moves on once five
+  or fewer bands are unconverged. `MAX_ITERATIONS` here is still 100. That allowance is
+  written and held as `notes/audit-1120/round2-9-scf-stragglers.patch`: read per call on
+  si8-1k, si16-1k and si8-us-1k at their own inputs and on the Y3 silicon of `OPEN.md`, no
+  call took more than 10 steps at any k-point (1 to 3, 1 to 3, 1 to 4 and 2 to 10), so it
+  saves nothing on these cells and there is no timing pair to show.
 * **The preconditioner**, compared directly against `g_psi.f90`'s form. A weak
   diagonal preconditioner shows up as exactly this signature -- many cheap steps
   rather than few expensive ones.
@@ -8167,6 +8204,19 @@ included. Timed on the CPU, third call: 9 ms on `si8-1k.in` against a 0.67 s bui
 on `pt-soc-paw-nosym.in` against 2.41 s, 0.29 s on `h40-chain-lsda.in` against 4.57 s (6
 per cent, the largest box here).
 
+**Added 2026-11-21 (audit 2026-11-20c #23): the 14 bands at 2225 MB belong to a streamed
+store.** They were chosen and measured while a one-k-point store streamed. Since `170f2b68`
+(2026-10-02) the SCF holds that store on the device, 104.6 MB more on this cell, which the
+chooser does not count: with it, 14 bands is 1378.1 MB against a budget of 1335.0, and the
+choice would be 11 (1315.6 MB). The same gap is in `k_batch = 'fit'` at the whole mesh
+(77.511 MB streamed against 79.073 MB on the device for two-atom Si at 12 Ry and 64 k-points,
+`david = 4`; the difference, 1.562 MB, is the store `S`). No recorded `'fit'` choice of the
+k-chunk changes under the corrected estimate: on the RTX A2000 at 10.44 GiB free (budget 6.264
+GiB), Si8 at 20 Ry is 0.7942 GiB at 27 k-points, 1.8831 at 64 and 3.6723 at 125, all whole,
+and Si16 at 30 Ry and 64 k-points stays at 22 a call. The fix is written and held,
+`notes/audit-1120/round3-23-fit-device-store.patch` (`OPEN.md` Part XXXII item 8), because it
+moves the 14 above. Nothing here was run on a card; these are the estimates of `sizing.py`.
+
 ## A band path that keeps no states (GTX 1060, 2026-09-28)
 
 `notes/GPU-MEMORY-NEXT.md` item 1. `fixed_density_bands` -- `run_bands`, `run_nscf` and so the
@@ -11343,6 +11393,25 @@ Si2, Elk 11.0.2 meshes of the converged Perdew-Zunger run (397 radial points, `l
 19 loops at 4.2 s on the same core, so nothing here is worth making faster yet. The pair is the one
 call Elk and this code share; Elk has no counterpart to the density rebuilt from PAW.
 
+### The muffin-tin expansion, one harmonic table for all atoms (audit 2026-11-20 #22, this workstation, 2026-11-20)
+
+`_muffin_tin_expansion` rebuilt the real harmonics of every `G`, the shell table and `j_l(|G| r)` for
+every atom, and summed each shell with one `np.add.at` per `(l, m, component)`. The harmonics and the
+shells are now built once per call of `all_electron_state`, `j_l` once per species, and the shell sum
+is one sparse product per component and per `l`. Measured on a synthetic cell (cubic, 20.4 bohr, every `G` of a
+48^3 box, `nG` = 110592, about the audit's 16-atom supercell at `ecutrho` 240 Ry), `lmax` 6, two
+components (a collinear magnet), 300 radial points, 4 atoms, one core (`taskset -c 0`,
+`OMP_NUM_THREADS=1`), median of 5 after one warm call, both arms in one process twice: **10.30 s and
+10.36 s before, 3.29 s and 3.37 s after**, 2.58 s against 0.83 s an atom. The memory goes the other
+way, a little: the `tracemalloc` peak of two atoms is 59.3 MiB before and 87.8 MiB after, since the
+harmonics and the `j_l` tables are now held across the atoms. A first version with one sparse product
+over all `l` at once took 3.23 s and peaked at 149.1 MiB, from its complex `(nG, lmmax)` temporary, so
+the product is taken one `l` at a time. The arrays are equal to the
+bit (`np.array_equal`) on core 0 and on core 4, since the sparse product adds the terms of a shell in
+the order of `G` as `np.add.at` did, and the Si2 `STATE.OUT` is the same file byte for byte. On the Si2
+template itself the gain is small, `all_electron_state` 1.074 s against 1.026 s (median of 5, core 0),
+because there the group of 48 operations is most of the time (audit #23).
+
 ## The local mBJ against TB09 (CPU, this workstation, 2026-11-18, P182)
 
 No reference code here implements the local mBJ (QE has no TB09 proper; Elk computes one all-electron `c`; VASP has the local form and is not here), so the pair is against this code's own TB09, which the local form reduces to in a bulk crystal. Silicon `si2-tb09.in` (30 Ry, 6x6x6), one core (`taskset -c 0`, `OMP_NUM_THREADS=1`), each run repeated four times in one process and the first dropped, median of three:
@@ -11353,6 +11422,47 @@ No reference code here implements the local mBJ (QE has no TB09 proper; Elk comp
 | local mBJ (`'tb09'` set, paper's `sigma` and `rs`) | 9 | 1.042 |
 
 The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. In a cell with vacuum the hold below `n` = 1e-5 keeps the SCF fast: graphane at 20, 30, 40 bohr in 13 to 14 iterations, where the potential evaluated down to 1e-9 took 18, 66 and 58 (P182).
+
+### The hold with one mean per face (audit 2026-11-20 #9 and #10, this workstation, 2026-11-20)
+
+`hold_vacuum_potential` now decides inside the jit whether the shell is the two faces of one slab
+(`hold_faces`), which adds five reductions per axis (one `any`, two `all`, two sums), about a quarter
+of the hold. Before and after the fix (`b59f3277`), cores 0 to 3, each arm in its own process, the
+compiled call timed after warm-up:
+
+| what | before | after |
+|---|---|---|
+| the hold alone, silicon's 24^3 grid (no shell), median of 200 calls | 0.69 to 0.82 ms | 1.10 to 1.38 ms |
+| the hold alone, graphane's 24x24x100 | 1.66 to 1.75 ms | 2.31 to 2.48 ms |
+| the hold alone, graphane tiled to 96x96x400 | 98 to 103 ms | 126 to 130 ms |
+| the whole potential build, si8-1k under `lmbj`, median of 30 calls, three processes per arm | 15.8, 16.0, 16.2 ms | 16.3, 16.4, 16.5 ms |
+| the whole potential build, graphane at 20 bohr, median of 40 calls, two processes per arm | 45.2 and 45.9 ms | 44.6 and 45.1 ms, not resolved |
+| an SCF iteration of si8-1k, median of 8 SCFs from a fresh `Calculator`, first dropped | 84.9, 85.0, 85.3 ms | 83.7, 84.5, 85.8 ms, not resolved |
+| an SCF iteration of graphane at 20 bohr, median of 2 | 647 and 712 ms | 661 and 662 ms, not resolved |
+
+The eigenvalues of si8-1k are identical in the two arms. The host check after the SCF
+(`warn_about_the_vacuum_hold`) is one read of the density and one `scipy.ndimage.label`; on si8 it
+is inside the scatter above.
+
+### No read of `c` for the PAW spheres in a run without PAW (audit 2026-11-20 #24, this workstation, 2026-11-20)
+
+The SCF fetched `Potential.meta_c` to the host for `Calculation.onecenter` once per iteration and once
+more after convergence, and `onecenter` returns before using it when no species is PAW. Every TB09, BJ06
+and local mBJ run without PAW paid that fetch, which waits for the whole potential before the Hamiltonian
+is dispatched. The two call sites now pass `is_meta and is_paw`. Measured on `benchmarks/si8-1k.in` with
+`input_dft = 'lmbj'` (9 SCF iterations, 10 such reads), two arms in one process (`_meta_c` as it was,
+against `_meta_c` answering `None`, which is what the fix does for this run), a fresh `Calculator` for every
+SCF, one warm-up of each arm dropped, the order of the arms alternated, 16 samples each:
+
+| cores | before, median s per SCF | after | after faster in |
+|---|---|---|---|
+| 4 (`taskset -c 0-3`) | 1.1327 | 1.0959 | 14 of 16 pairs (paired median 54 ms) |
+| 1 (`taskset -c 0`, `OMP_NUM_THREADS=1`) | 1.1281 | 1.1233 | 11 of 16 pairs (paired median 3.3 ms) |
+
+So about 6 ms an iteration on four cores and nothing resolved on one, where the core that waits is the
+core that computes. The gain the finding expects is on a card, where dispatch runs ahead of the device;
+there is no card here. The eigenvalues of the two arms are equal to the bit, and a PAW TB09 silicon SCF
+(15 Ry, 2x2x2), which still reads `c`, is bit-identical before and after on cores 0 to 3.
 
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 
@@ -11388,6 +11498,26 @@ the chunk's states, and the result adds an `(nspin, nk, 3, 3)` real map (5 kB at
 The peak is the fixed-density store, `nk x nbnd x npol npwx` complex, as for every sum over
 states here. The overlap route holds the occupied manifold on the whole mesh, `N^3 x nocc x
 npwx` complex, and one `(N^3, nocc, nocc)` overlap block per mesh direction.
+
+### The overlap metric reads `nelec` from the valence charges (audit 2026-11-20c #16, this workstation, 2026-11-20)
+
+The overlap quantum metric reads `nelec` from the valence charges instead of building a second
+`Calculation` (`94d33304`): `System` has no `nelec`, so `_electrons` built a whole `Calculation`
+at every call. PAW silicon (`Si.pbe-n-kjpaw_psl.0.1.UPF`, `celldm(1) = 10.26`, 20/160 Ry, whole
+3x3x3 grid, `nosym`, converged at `conv_thr = 1e-10`), each arm in its own process on
+`taskset -c 0-3`, the old one from a worktree at `e694ab0a`, one warm call and then 5 timed
+calls, medians, two alternating rounds:
+
+| what | before, s | after, s |
+|---|---|---|
+| `_electrons` alone, the removed build | 0.743 and 0.748 | 3.4e-6 and 3.2e-6 |
+| the whole `run_quantum_metric(method = 'overlap')` with the caller's `calculation` | 2.302 and 2.796 | 1.585 and 1.572 |
+
+The two "before" readings of the whole metric are 21 per cent apart, so the second round had
+noise; the drop in the first round, 0.72 s, is the size of the removed build. A third round is
+discarded, since another session's process held a core through it. `metric`,
+`localization_tensor` and `nelec` are equal to the bit between the arms. The peak memory was
+not measured.
 
 ## Wannier functions against `pw.x` + `pw2wannier90.x` + `wannier90.x` (CPU, 2026-11-04)
 
@@ -11823,3 +11953,54 @@ tip orbital does not change what a map costs. **Memory**: the sampled block
 pixels per block; beside it there is one multiplied window `(n_window, npol npwx)` at a time, and the
 Fourier coefficients of the scalar potential for the diagnostics (one complex FFT grid). The process
 peak of the timing run was 1.02 GB, the SCF included.
+
+### The turned tip on a wedge, one set of coefficients per operation (audit 2026-11-20 #4, #5 and #34, this workstation, 2026-11-20)
+
+`_turned_tips` held the coefficients of a turned tip once per image point, `(nE, n_ops npts, nc, nb)`,
+which repeats the `(nE, n_ops, nc, nb)` array `npts` times. It now holds the latter and reads point `p`
+at operation `p // npts` (`TipAssembly.at_points`). Measured on a synthetic star (`HEXAGONAL` cell of
+`tests/unit/test_tip_orbitals.py`, one general k-point and its six images under C6, 5 bands), a 64x64
+tip plane, 51 energies, the tip `s + 0.7 px` (one channel, the whole s and p shells, `nb = 4`),
+`incoherent=True`, one core (`taskset -c 0-3`, `OMP_NUM_THREADS=1`), median of the last 5 of 6 calls of
+`_completed_on_a_wedge`: the coefficients are **80.2 MB before and 0.020 MB after**, the `tracemalloc`
+peak of `_turned_tips` 160.5 MB and 0.073 MB, and the time 0.756 s and 0.727 s. The maps are
+bit-identical (`np.array_equal` on the coherent, incoherent and channel maps, at 16x16 and 64x64), so
+the gain is memory only. The audit's case, 12 operations and a 64x64 plane at 51 energies, is 160 MB
+of coefficients before.
+
+The fix of #4 and #5 turns the channels of `pxy`, `p`, `CO` and `Pb` per image when `tip_channels=True`
+on a wedge. On the same star with `pxy`, `tip_channels=True`, it costs 1.318 s against 1.074 s before
+(1.23x, same protocol), for the per-point combination of the two channels; without `tip_channels` the
+path is unchanged.
+
+### The momentum route with a tip orbital: basis Grams, not one Gram per energy and channel (audit 2026-11-20 #7, this workstation, 2026-11-20)
+
+The tip plane's Gram matrix of a channel at an energy is `sum_bb' C_b^* C_b' G_bb'`, and only the
+coefficients depend on the energy. `_assemble_momentum` built and stored one Gram matrix per energy and
+per channel, `(nE, nc, nk, nbnd, nbnd)`; it now builds the `nb^2` basis Grams once per plane (one product
+of the stacked `(nb nbnd, npol, ng)` array per k-point) and contracts each channel when it is used. The
+hydrogen sheet, its whole 8x8x1 grid, 16 bands, the tip plane 3 bohr up, `bias=0.2`, one core
+(`taskset -c 0-3`, `OMP_NUM_THREADS=1`), warmed once, then the median of 5 calls; peak by `tracemalloc`
+on one more call:
+
+| tip, energies | before (s) | after (s) | peak before | peak after |
+|---|---|---|---|---|
+| `p`, 21 | 0.597 | 0.588 | 18.9 MB | 5.0 MB |
+| `p`, 41 | 1.099 | 0.917 | 34.7 MB | 5.0 MB |
+| `pz`, 41 | 0.480 | 0.453 | 13.1 MB | 2.7 MB |
+| `p`, 1 (no `bias`) | 0.206, 0.208 | 0.204, 0.205 | 3.1 MB | 4.9 MB |
+| `s - pz`, 1 (no `bias`) | 0.159, 0.158 | 0.213, 0.158 | 2.6 MB | 3.3 MB |
+| `pz`, 1 (no `bias`) | 0.165, 0.120 | 0.120, 0.119 | 2.6 MB | 2.6 MB |
+
+The one-energy rows are medians of 15, two runs of each arm alternated, because at this size a run
+lands at about 0.12 s or about 0.165 s for the same work (with 5 samples `pz` read 0.118 in the
+old arm and 0.166 and 0.159 in two runs of the new one; with 15, 0.165 and 0.120 old, 0.120 and 0.119
+new); the pairs that agree are the measurement, and at one energy the two routes cost the same. There the peak grows for `p`, since its 9 basis Grams replace 3
+channel Grams. The peak no longer grows with the energies. The audit's case (`p`, 21 energies, 900 k-points, 60 bands)
+held 3.3 GB of Grams before and holds 9 x 900 x 60^2 x 16 B = 0.47 GB of basis Grams now. On 27 cases of
+the hydrogen sheet and its spinor (`pz`, `pxy`, `p`, `CO`, `s - pz`, `dz2`, raw and continued, no
+substrate projector and a `z` and an `x` one at polarization 0.7, 21 energies, two heights) the four
+columns agree with the old code to 1.6e-15 of their peak and `least_eigenvalue` to 2.4e-15. What is left
+is `channel_basis` on the exit Gram, redone in every `momentum_weights` call (a quarter of the route at
+41 energies); it depends only on the exit plane and the eigenvalues, and hoisting it is an argument of
+`momentum_weights`, outside this change.

@@ -520,6 +520,9 @@ computes the absorption of a silicon supercell with a vacancy.
     unshifted grid as `kpoints`. A shifted whole grid works for the spectrum
     itself, but the band-truncation check `static_residual` gives an error on
     it, so you pass `static_residual=False`.
+    The conductivity by KPM (`get_kpm_conductivity`) runs on the whole grid of the k-set.
+    So a list of k-points must be a whole grid, as for the KPM traces in the DOS page.
+    Any other list gives an error.
     The absorption spectrum works with `K_POINTS gamma`. The bands are solved
     again on the whole sphere, and the spectrum agrees with an explicit $k = 0$
     to 1.4e-9.

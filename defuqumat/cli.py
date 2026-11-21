@@ -11,6 +11,12 @@ it ends on. ``stress`` runs one SCF and prints the stress tensor in ``pw.x``'s
 own layout -- Ry/bohr^3 beside kbar -- which is what ``tstress = .true.`` asks
 for. The ``scf``/``bands`` subcommands land with
 their phases.
+
+Every subcommand that runs an SCF looks for the pseudopotentials where
+``Calculator.from_file`` does: ``--pseudo-dir``, else the input's own
+``pseudo_dir``, else beside the input. ``dos`` and ``pdos`` take the input's
+``&electrons`` as ``from_file`` does, and stop with exit code 1, writing
+nothing, when the SCF does not converge (audit 2026-11-20b #26).
 """
 
 from __future__ import annotations
@@ -24,12 +30,67 @@ import numpy as np
 from defuqumat import __version__
 from defuqumat.io import read_qe_output, write_dos
 from defuqumat.io.pwin import read_pw_input
-from defuqumat.pseudo import read_upf
 from defuqumat.scf import Calculation, run_scf
 from defuqumat.system import build_system
 from defuqumat.units import RY_TO_EV
 from defuqumat.workflows import run_dos
 from defuqumat.workflows.relax import run_relax
+
+#: The SCF threshold of ``dos`` and ``pdos`` when neither the command line nor
+#: the input's ``&electrons`` gives one; it was their only default before they
+#: read the input's (audit 2026-11-20b #26).
+DOS_CONV_THR = 1e-8
+
+
+def _load_pseudos(args, pwin, input_path: Path, system) -> tuple:
+    """The input's pseudopotentials, found where ``Calculator.from_file`` finds them.
+
+    ``--pseudo-dir`` first; otherwise ``&control``'s ``pseudo_dir``, relative to
+    the input file as ``pw.x`` reads it, and the input's own directory behind it,
+    tried file by file. Every subcommand but ``size`` looked beside the input
+    only, so an input whose files live where its ``pseudo_dir`` says gave a
+    file-not-found here and ran through the front door (audit 2026-11-20b #26).
+    """
+    from defuqumat.calculator import _resolve_pseudos
+
+    if args.pseudo_dir:
+        directories = (Path(args.pseudo_dir),)
+    else:
+        named = pwin.get("control", "pseudo_dir")
+        directories = ((input_path.parent / str(named).strip(), input_path.parent)
+                       if named else (input_path.parent,))
+    return _resolve_pseudos(system, None, directories)
+
+
+def _scf_options(args, pwin) -> dict:
+    """``run_scf``'s keywords for ``dos`` and ``pdos``: the input's ``&electrons``.
+
+    Read through :func:`~defuqumat.calculator.electrons_defaults`, as
+    ``Calculator.from_file`` reads it, so ``mixing_beta``, ``mixing_ndim``,
+    ``electron_maxstep`` and the rest reach the SCF. ``--conv-thr`` wins over the
+    input's ``conv_thr``, and :data:`DOS_CONV_THR` stands in when neither says.
+    """
+    from defuqumat.calculator import electrons_defaults
+
+    options = electrons_defaults(pwin)
+    if args.conv_thr is not None:
+        options["conv_thr"] = args.conv_thr
+    options.setdefault("conv_thr", DOS_CONV_THR)
+    return options
+
+
+def _not_converged(scf, quantity: str) -> int:
+    """Say that the SCF stopped short and return the exit code 1.
+
+    ``SCFResult.require_converged``'s rule, which the front door applies to every
+    quantity built on a ground state: a density of states from an unconverged
+    density is not written.
+    """
+    print(f"error: the SCF stopped at accuracy {scf.accuracy:.2e} Ry after "
+          f"{scf.iterations} iterations without converging, and {quantity} "
+          "needs a converged ground state. Loosen conv_thr, raise "
+          "electron_maxstep or change the mixing in the input", file=sys.stderr)
+    return 1
 
 
 def _size(path: str, pseudo_dir, k_batch, david) -> int:
@@ -97,19 +158,19 @@ def _inspect(path: str) -> int:
 def _dos(args) -> int:
     """SCF, then NSCF on a denser grid, then integrate -- ``pw.x`` plus ``dos.x``."""
     input_path = Path(args.input)
-    pseudo_dir = Path(args.pseudo_dir) if args.pseudo_dir else input_path.parent
-    system = build_system(read_pw_input(input_path))
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    pwin = read_pw_input(input_path)
+    system = build_system(pwin)
+    pseudos = _load_pseudos(args, pwin, input_path, system)
 
     k_batch = args.k_batch if args.k_batch is None else (
         None if args.k_batch.lower() in ("all", "0") else int(args.k_batch)
     )
     k_batch = "default" if args.k_batch is None else k_batch
-    scf = run_scf(system, pseudos, conv_thr=args.conv_thr, verbose=args.verbose,
-                  k_batch=k_batch)
-    if not scf.converged:
-        print(f"warning: the SCF stopped at accuracy {scf.accuracy:.2e}", file=sys.stderr)
+    options = _scf_options(args, pwin)
+    scf = run_scf(system, pseudos, verbose=args.verbose, k_batch=k_batch, **options)
     print(f"  total energy     {scf.total_energy:.8f} Ry ({scf.iterations} iterations)")
+    if not scf.converged:
+        return _not_converged(scf, "a density of states")
 
     grid = tuple(args.kgrid) if args.kgrid else None
     # Emin/Emax/DeltaE are given in eV, as dos.x takes them, and converted here
@@ -125,7 +186,7 @@ def _dos(args) -> int:
         emin=None if args.emin is None else args.emin / RY_TO_EV,
         emax=None if args.emax is None else args.emax / RY_TO_EV,
         delta_e=args.delta_e / RY_TO_EV,
-        conv_thr=args.conv_thr,
+        conv_thr=options["conv_thr"],
         k_batch=k_batch,
     )
     print(f"  k-points         {nscf.kpoints.nk} irreducible"
@@ -145,10 +206,9 @@ def _dos(args) -> int:
 def _relax(args) -> int:
     """The ionic loop: SCF, forces, move, repeat -- ``calculation = 'relax'``."""
     input_path = Path(args.input)
-    pseudo_dir = Path(args.pseudo_dir) if args.pseudo_dir else input_path.parent
     pwin = read_pw_input(input_path)
     system = build_system(pwin)
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    pseudos = _load_pseudos(args, pwin, input_path, system)
 
     # The input's own thresholds, unless the command line overrides them: a
     # relax input carries three, and silently using different ones would make
@@ -186,10 +246,9 @@ def _stress(args) -> int:
     from defuqumat.units import RY_TO_KBAR
 
     input_path = Path(args.input)
-    pseudo_dir = Path(args.pseudo_dir) if args.pseudo_dir else input_path.parent
     pwin = read_pw_input(input_path)
     system = build_system(pwin)
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    pseudos = _load_pseudos(args, pwin, input_path, system)
 
     # ``tstress`` in the input is what ``pw.x`` obeys, and ``build_system``
     # carries it; asking for this subcommand at all overrides it, since nobody
@@ -237,14 +296,13 @@ def _spiral(args) -> int:
     from defuqumat.workflows.spiral import run_spiral_scan
 
     input_path = Path(args.input)
-    pseudo_dir = Path(args.pseudo_dir) if args.pseudo_dir else input_path.parent
     pwin = read_pw_input(input_path)
     system = build_system(pwin)
     if not system.spiral:
         print("the input has no spiral_q; a spiral scan needs one (and nosym, and "
               "noncolin)", file=sys.stderr)
         return 2
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    pseudos = _load_pseudos(args, pwin, input_path, system)
 
     end = np.asarray(args.path if args.path else system.spiral_q, dtype=float)
     fractions = np.linspace(0.0, 1.0, max(2, args.points))
@@ -288,18 +346,18 @@ def _pdos(args) -> int:
     from defuqumat.workflows.pdos import run_pdos
 
     input_path = Path(args.input)
-    pseudo_dir = Path(args.pseudo_dir) if args.pseudo_dir else input_path.parent
-    system = build_system(read_pw_input(input_path))
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    pwin = read_pw_input(input_path)
+    system = build_system(pwin)
+    pseudos = _load_pseudos(args, pwin, input_path, system)
 
     k_batch = "default" if args.k_batch is None else (
         None if args.k_batch.lower() in ("all", "0") else int(args.k_batch)
     )
-    scf = run_scf(system, pseudos, conv_thr=args.conv_thr, verbose=args.verbose,
-                  k_batch=k_batch)
-    if not scf.converged:
-        print(f"warning: the SCF stopped at accuracy {scf.accuracy:.2e}", file=sys.stderr)
+    options = _scf_options(args, pwin)
+    scf = run_scf(system, pseudos, verbose=args.verbose, k_batch=k_batch, **options)
     print(f"  total energy     {scf.total_energy:.8f} Ry ({scf.iterations} iterations)")
+    if not scf.converged:
+        return _not_converged(scf, "a projected density of states")
 
     grid = tuple(args.kgrid) if args.kgrid else None
     # Emin/Emax/DeltaE arrive in eV, as projwfc.x takes them.
@@ -316,7 +374,7 @@ def _pdos(args) -> int:
         delta_e=args.delta_e / RY_TO_EV,
         projectors=args.projectors,
         symmetrize=not args.no_symmetrize,
-        conv_thr=args.conv_thr,
+        conv_thr=options["conv_thr"],
         k_batch=k_batch,
     )
     print(f"  k-points         {states.kpoints.nk} irreducible"
@@ -359,7 +417,8 @@ def main(argv: list[str] | None = None) -> int:
 
     dos = sub.add_parser("dos", help="SCF, then a density of states on a denser k-grid")
     dos.add_argument("input", help="path to a pw.x input file")
-    dos.add_argument("--pseudo-dir", help="where the UPF files are (default: beside the input)")
+    dos.add_argument("--pseudo-dir", help="where the UPF files are (default: the "
+                                          "input's pseudo_dir, then beside the input)")
     dos.add_argument("--kgrid", nargs=3, type=int, metavar=("N1", "N2", "N3"),
                      help="denser Monkhorst-Pack grid for the NSCF step")
     dos.add_argument("--nbnd", type=int, help="bands to compute (default: the input's)")
@@ -368,7 +427,10 @@ def main(argv: list[str] | None = None) -> int:
     dos.add_argument("--emin", type=float, help="lowest energy in eV (default: the lowest band)")
     dos.add_argument("--emax", type=float, help="highest energy in eV (default: the highest band)")
     dos.add_argument("--delta-e", type=float, default=0.01, help="energy step in eV (default 0.01)")
-    dos.add_argument("--conv-thr", type=float, default=1e-8, help="SCF convergence threshold in Ry")
+    dos.add_argument("--conv-thr", type=float, default=None,
+                     help="SCF convergence threshold in Ry (default: the input's, "
+                          "else 1e-8). The rest of the input's &electrons is used "
+                          "as it is")
     dos.add_argument("-o", "--output", help="where to write the .dos file")
     dos.add_argument("-v", "--verbose", action="store_true", help="print each SCF iteration")
     dos.add_argument("--k-batch", metavar="N",
@@ -380,7 +442,8 @@ def main(argv: list[str] | None = None) -> int:
         "pdos", help="SCF, then a projected density of states and Loewdin charges"
     )
     pdos.add_argument("input", help="path to a pw.x input file")
-    pdos.add_argument("--pseudo-dir", help="where the UPF files are (default: beside the input)")
+    pdos.add_argument("--pseudo-dir", help="where the UPF files are (default: the "
+                                           "input's pseudo_dir, then beside the input)")
     pdos.add_argument("--kgrid", nargs=3, type=int, metavar=("N1", "N2", "N3"),
                       help="denser Monkhorst-Pack grid for an NSCF step (default: the "
                            "SCF's own k-points, which is what projwfc.x projects)")
@@ -397,7 +460,10 @@ def main(argv: list[str] | None = None) -> int:
                            "which is what projwfc.x uses)")
     pdos.add_argument("--no-symmetrize", action="store_true",
                       help="skip sym_proj_k, projwfc.x's lsym = .false.")
-    pdos.add_argument("--conv-thr", type=float, default=1e-8, help="SCF convergence threshold in Ry")
+    pdos.add_argument("--conv-thr", type=float, default=None,
+                      help="SCF convergence threshold in Ry (default: the input's, "
+                           "else 1e-8). The rest of the input's &electrons is used "
+                           "as it is")
     pdos.add_argument("-o", "--output", help="prefix for the .pdos_* files (projwfc.x's filpdos)")
     pdos.add_argument("-v", "--verbose", action="store_true", help="print each SCF iteration")
     pdos.add_argument("--k-batch", metavar="N",
@@ -406,7 +472,8 @@ def main(argv: list[str] | None = None) -> int:
 
     relax = sub.add_parser("relax", help="relax the atomic positions at fixed cell")
     relax.add_argument("input", help="path to a pw.x input file")
-    relax.add_argument("--pseudo-dir", help="where the UPF files are (default: beside the input)")
+    relax.add_argument("--pseudo-dir", help="where the UPF files are (default: the "
+                                            "input's pseudo_dir, then beside the input)")
     relax.add_argument("--conv-thr", type=float, help="SCF threshold in Ry (default: the input's)")
     relax.add_argument("--etot-conv-thr", type=float,
                        help="energy threshold for the relaxation, Ry (default: the input's)")
@@ -423,7 +490,8 @@ def main(argv: list[str] | None = None) -> int:
         "spiral", help="scan the total energy over spin-spiral wavevectors E(q)"
     )
     spiral.add_argument("input", help="path to a pw.x input file with spiral_q set")
-    spiral.add_argument("--pseudo-dir", help="where the UPF files are (default: beside the input)")
+    spiral.add_argument("--pseudo-dir", help="where the UPF files are (default: the "
+                                             "input's pseudo_dir, then beside the input)")
     spiral.add_argument("--path", nargs=3, type=float, metavar=("Q1", "Q2", "Q3"),
                         help="scan from the origin to this q, in lattice coordinates "
                              "(default: the input's own spiral_q)")
@@ -435,7 +503,8 @@ def main(argv: list[str] | None = None) -> int:
     stress = sub.add_parser("stress", help="one SCF, then the stress tensor")
     stress.add_argument("input", help="path to a pw.x input file")
     stress.add_argument("--pseudo-dir",
-                        help="where the UPF files are (default: beside the input)")
+                        help="where the UPF files are (default: the input's "
+                             "pseudo_dir, then beside the input)")
     stress.add_argument("--conv-thr", type=float,
                         help="SCF threshold in Ry (default: the input's)")
     stress.add_argument("--terms", action="store_true",

@@ -313,8 +313,8 @@ class StreamedDisplacements:
                            if onecentre is not None else [])
         return response, becsum_response
 
-    def fermi_level_shift(self, drho):
-        """``ef_shift`` with ``ldos`` and ``dos_ef`` walked once, not per call."""
+    def fermi_levels(self):
+        """``(ldos, dos_ef)``, walked once, not per call."""
         if self._levels is None:
             total, dos_ef = None, 0.0
             for rows, live in self.chunks:
@@ -322,8 +322,12 @@ class StreamedDisplacements:
                 total = _add(total, parts)
                 dos_ef += float(weight)
             self._levels = (self.solver.finish_density(*total), dos_ef)
+        return self._levels
+
+    def fermi_level_shift(self, drho):
+        """``ef_shift`` with ``ldos`` and ``dos_ef`` walked once, not per call."""
         corrected, shift = self.solver.fermi_level_shift(
-            self._on_device(drho), levels=self._levels)
+            self._on_device(drho), levels=self.fermi_levels())
         if self.host_fields:
             corrected = np.asarray(corrected)
         return corrected, shift

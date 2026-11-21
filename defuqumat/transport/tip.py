@@ -297,10 +297,13 @@ class TipAssembly:
     """What :func:`~defuqumat.workflows.transport._assemble` needs of a tip.
 
     ``coefficients`` is ``(nE, n_channels, n_basis)``, shared by every tip
-    point, or ``(nE, npts, n_channels, n_basis)`` with one set per point, which
-    is what a wedge's images need (each image carries the orbital turned by its
-    operation). ``kappa`` is ``(nE,)`` in 1/bohr. ``ethr`` is the threshold the
-    bands were solved to, for the tail-noise estimate, or ``None``.
+    point, or ``(nE, n_images, n_channels, n_basis)`` with one set per image,
+    which is what a wedge's images need (each image carries the orbital turned
+    by its operation). The tip points are then laid out image-major,
+    ``points_per_image`` to an image, so point ``p`` takes the set of image ``p
+    // points_per_image`` (:meth:`at_points`). ``kappa`` is ``(nE,)`` in
+    1/bohr. ``ethr`` is the threshold the bands were solved to, for the
+    tail-noise estimate, or ``None``.
     """
 
     orbital: TipOrbital
@@ -320,6 +323,8 @@ class TipAssembly:
     #: "normal": n, "side": +-1, "spacing": bohr}`` with ``s_m`` the matching
     #: plane's crystal coordinate and ``n`` the unit normal towards the tip
     match: object = None
+    #: with one set of coefficients per image, how many tip points each image has
+    points_per_image: int | None = None
 
     def potential_at(self, points) -> np.ndarray | None:
         """``V(r)`` in Ry at crystal points, by its Fourier series (exact)."""
@@ -338,15 +343,26 @@ class TipAssembly:
     def per_point(self) -> bool:
         return np.ndim(self.coefficients) == 4
 
+    def at_points(self, ie: int, ic: int, points) -> np.ndarray:
+        """``(len(points), n_basis)``: channel ``ic``'s coefficients at energy
+        ``ie`` for the tip points ``points`` (indices), when they vary per
+        image. The images are not repeated per point: ``(nE, n_images, nc,
+        nb)`` is held, not ``(nE, n_images npts, nc, nb)`` (audit 2026-11-20
+        #34)."""
+        images = np.asarray(points) // int(self.points_per_image)
+        return np.asarray(self.coefficients)[ie, images, ic]
+
     @property
     def nchannels(self) -> int:
         return int(np.shape(self.coefficients)[-2])
 
-    def with_coefficients(self, coefficients, basis=None) -> "TipAssembly":
+    def with_coefficients(self, coefficients, basis=None,
+                          points_per_image=None) -> "TipAssembly":
         return TipAssembly(self.orbital, self.basis if basis is None else tuple(basis),
                            np.asarray(coefficients), self.frame, self.kappa,
                            self.ethr, self.channel_maps, self.diagnostic_points,
-                           self.potential, self.plateau, self.match)
+                           self.potential, self.plateau, self.match,
+                           points_per_image)
 
 
 # --------------------------------------------------------------------------
@@ -460,7 +476,8 @@ def continued_wavevectors(inplane, lateral_k, cell, normal, plateau, energies):
 def continued_components(inplane, lateral_k, cell, match, energies, distance):
     """``(Q, decay)`` of the folded components ``distance`` bohr above the plane.
 
-    The WKB form of :func:`continued_wavevectors`: each in-plane component
+    The WKB exponent of :func:`continued_wavevectors`, **without the WKB
+    amplitude** (below): each in-plane component
     decays as ``exp(-int_0^d kappa_nG(t) dt)`` with ``kappa_nG(t)^2 = V(t) -
     e_n + |q_par|^2`` and ``V(t)`` the planar average of the local potential
     between the matching plane and the tip (``match["profile"]``), and its
@@ -473,6 +490,24 @@ def continued_components(inplane, lateral_k, cell, match, energies, distance):
     ``kappa^2`` is negative somewhere on the path (a classically allowed
     stretch) does not decay there; the lateral corrugation of the potential is
     not in a planar average.
+
+    **The amplitude factor is left out on purpose, and measured.** The WKB
+    solution of ``psi'' = kappa(t)^2 psi`` is ``kappa^-1/2 exp(-int kappa)``, so
+    a component matched at the plane would carry ``sqrt(kappa_nG(0) /
+    kappa_nG(d))`` as well, which is below 1 on a rising potential. With it
+    (audit 2026-11-20 #49, the record's probe: graphene at 40 Ry, the 6x6x1
+    grid and 20 bands, the plane 3 bohr up), the s map over an atom is 0.959,
+    0.914 and 0.903 of the raw tail at 3.5, 4 and 5 bohr, against 1.0105,
+    0.9837 and 1.0125 for the exponent alone, and the ``pxy`` hollow over an
+    atom at 4 bohr is 1.9504 against 1.9520. On the hydrogen sheet at 15 Ry
+    (the momentum route, tip plane 3 bohr up, plane 2 bohr up, the total
+    weight against the raw tail) the factor gives 0.951, 0.873 and 0.937 for
+    s, pz and ``pxy``, the exponent alone 1.121, 1.022 and 1.087; there the
+    raw tail is not good itself (its Helmholtz residue is 1.12 at 3 bohr,
+    ``PLAN.md`` P179), so this pair does not decide. The exponent alone is kept
+    because it is the closer of the two where the raw tail can be trusted. Why
+    the factor makes it worse there is not known: one candidate is the lateral
+    change of the potential, which the planar average leaves out.
 
     Returns ``Q`` ``(nbnd, ng, 3)`` complex, cartesian, ``q_par + i kappa_nG(d)
     n``, and ``decay`` ``(nbnd, ng)``.

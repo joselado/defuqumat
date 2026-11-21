@@ -34,6 +34,7 @@ the delta has to sit on for the sum rule to hold; ``energy=`` overrides it.
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 
 import numpy as np
@@ -103,11 +104,13 @@ def run_stm(
             are needed, not only its density.
         height: crystal coordinate of the tip plane along ``axis`` -- the
             shortcut for a slab, spanning the whole surface cell. In
-            constant-current mode it is where the scan starts.
+            constant-current mode it is where the scan starts, and the tip is
+            withdrawn along ``+a_axis``, whatever the handedness of the cell.
         axis: which lattice vector ``height`` measures along, 0, 1 or 2.
             It describes the shortcut and nothing else: a scan takes its
             direction from the plane's own normal, so an explicit ``plane``
-            need not be perpendicular to a lattice vector.
+            need not be perpendicular to a lattice vector. Its normal is the
+            cross product of its two edges, in the order given.
         plane: the general form, ``(origin, edge1, edge2)`` in crystal
             coordinates -- Elk's ``vclp2d`` -- or a
             :class:`~defuqumat.stm.plane.PlotPlane` already built. Mutually
@@ -118,12 +121,13 @@ def run_stm(
             tunnelling density -- 1/(bohr^3 Ry) at zero bias, electrons/bohr^3
             in a window.
         heights: ``(lo, hi)`` in **bohr** along the surface normal, measured
-            from the plane, over which the tip is scanned. Defaults to one
-            lattice period along that normal, which is the largest scan that
-            cannot repeat itself. It is a bound and not a recommendation: the
-            scan should stay inside the *vacuum*, and a slab whose vacuum is
-            thinner than the period will show the next surface coming the
-            other way well before the guard fires.
+            from the plane, over which the tip is scanned. **Required in
+            constant-current mode**: the scan has to end in the vacuum, before
+            the next copy of the slab, and only the caller knows where that is
+            (audit 2026-11-20c #9). A scan of one lattice period along the
+            normal or more is refused, since its last plane is the first one
+            again; a slab whose vacuum is thinner than the period shows the
+            next surface coming the other way well before that.
         nheights: planes in the scan.
         spin: image one spin channel instead of the charge -- a magnetic tip.
             A cartesian 3-vector (the tip's moment direction), or ``"up"`` /
@@ -156,6 +160,8 @@ def run_stm(
     """
     refuse_an_ultracell_result(
         result, "an STM image", "defuqumat.workflows.ultracell.run_ultracell_stm")
+    if mode == "constant-current":
+        _require_a_scan_range(heights)     # before the band solve, not after it
     _refuse_what_has_no_fermi_level(system, result, charge_image=spin is None,
                                     field_measured=True)
     # Gamma-only storage needs nothing here. The image is the tunnelling
@@ -688,7 +694,20 @@ def _plane(cell, height, axis, plane, shape, span=(1.0, 1.0, 1.0)):
     edge1, edge2 = origin.copy(), origin.copy()
     edge1[first] = float(span[first])
     edge2[second] = float(span[second])
-    return plot_plane(cell, origin, edge1, edge2, shape)
+    geometry = plot_plane(cell, origin, edge1, edge2, shape)
+    # **The shortcut's normal points along +a_axis**, the way a tip is
+    # withdrawn from a slab below it. ``plot_plane``'s normal is the cross
+    # product of the edges in this order, which is +a1 and +a3 for axis 0 and 2
+    # in a right-handed cell but -a2 for axis 1, and every axis turns over in
+    # a left-handed cell; a constant-current scan along it walks into the slab
+    # (audit 2026-11-20c #10). Only the normal is turned, so the points and the
+    # layout of the image stay as they were. An explicit ``plane=`` keeps the
+    # normal its corners give.
+    at = np.asarray(cell.at, dtype=float)
+    normal = np.asarray(geometry.normal, dtype=float)
+    if float(normal @ at @ at[axis]) < 0.0:
+        geometry = dataclasses.replace(geometry, normal=-normal)
+    return geometry
 
 
 def _constant_current(sample, geometry, cell, current, heights, nheights):
@@ -713,14 +732,16 @@ def _constant_current(sample, geometry, cell, current, heights, nheights):
     projections = np.abs(at @ (normal @ at))
     moving = projections[projections > 1.0e-8]
     reach = float(moving.min()) if moving.size else float(projections.max())
-    if heights is None:
-        heights = (0.0, reach)
+    _require_a_scan_range(heights)
     lo, hi = float(heights[0]), float(heights[1])
     if not hi > lo:
         raise ValueError(f"the scan must have hi > lo, got {heights}")
     if int(nheights) < 2:
         raise ValueError(f"a scan needs at least two planes, got {nheights}")
-    if hi - lo > reach + 1.0e-8:
+    # ``>=``: a scan of exactly one period ends on the periodic image of the
+    # plane it started from, so its last plane is its first one again
+    # (audit 2026-11-20c #9).
+    if hi - lo >= reach - 1.0e-8:
         # **The tunnelling density is periodic and a long scan finds the next
         # slab.** Withdrawing the tip past the cell brings it up underneath the
         # image of the surface it started on, where the density rises again --
@@ -729,8 +750,9 @@ def _constant_current(sample, geometry, cell, current, heights, nheights):
         # set-point that is merely too low.
         raise ValueError(
             f"the scan spans {hi - lo:.3f} bohr and the cell is only "
-            f"{reach:.3f} bohr along this normal: past that the tip is under "
-            "the periodic image of the surface and the density rises again"
+            f"{reach:.3f} bohr along this normal: at that distance the tip is "
+            "back on the periodic image of the plane it started from, and "
+            "before it the density of the next copy of the surface rises again"
         )
 
     scan = np.linspace(lo, hi, int(nheights))
@@ -754,6 +776,27 @@ def _constant_current(sample, geometry, cell, current, heights, nheights):
         heights=corrugation,
         heights_bohr=corrugation,
     )
+
+
+def _require_a_scan_range(heights):
+    """A constant-current scan is told how far the tip may be withdrawn.
+
+    **No default is safe.** The scan has to end in the vacuum, before the next
+    copy of the slab, and that depends on where the slab and the tip plane
+    are, which the scan does not know. One lattice period, the old default,
+    ends on the periodic image of the plane it started from, so every pixel
+    came back ``nan`` or one period too high; half a period still ends inside
+    the next copy of a graphite bilayer with 13 bohr of vacuum and the tip
+    3.5 bohr above it (audit 2026-11-20c #9).
+    """
+    if heights is None:
+        raise ValueError(
+            "a constant-current scan needs heights=(lo, hi), in bohr along the "
+            "plane's normal from the tip plane: the scan has to end in the "
+            "vacuum, before the next copy of the slab, and the code does not "
+            "know where the vacuum is. For a tip that starts near the surface, "
+            "the vacuum midpoint is a good upper end"
+        )
 
 
 # --------------------------------------------------------------------------

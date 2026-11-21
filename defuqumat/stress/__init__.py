@@ -142,6 +142,16 @@ def compute_stress(
             f"method={name!r} is not available with k-point pools: it reads every "
             "k-point's states directly, and a pool holds only its share. The "
             "default autodiff stress walks each pool's rows and reduces.")
+    if isinstance(state.wavefunctions, PoolStore) and terms:
+        # Checked before the total is paid for. The decomposition is one
+        # ``jacfwd`` of the whole-k energy with the states as an argument, and
+        # a ``PoolStore`` is not an array: it failed with a TypeError inside
+        # the jit, after the total (audit 2026-11-20b #25).
+        raise NotImplementedError(
+            "the stress decomposition (terms=True) is not available with k-point "
+            "pools: it is a forward-mode Jacobian of the energy over every "
+            "k-point at once, and a pool holds only its share. The total stress "
+            "(terms=False) walks each pool's rows and reduces.")
 
     raw = np.asarray(get_stress_method(name)(calculation, state), dtype=float)
     rotational = float(np.abs(raw - raw.T).max() / 2.0)

@@ -554,7 +554,9 @@ period you compare the energies of several long cells, one run each.
     ultracells. With spin-orbit coupling (`lspinorb`) this whole-cell exit region
     gives an error, because it is not checked there. A spectrum gives an error if you also
     give `bias`, since the energy axis already holds it, and a constant-current
-    spectrum is not computed. A `magnetic_field` does not give an error here,
+    spectrum is not computed. A constant-current image without `heights` gives
+    an error, as on the [STM page](stm.md), because the scan has to end in the
+    vacuum and the code does not know where that is. A `magnetic_field` does not give an error here,
     where a unit-cell image refuses it, because in the long cell the field is
     the driver of the modulation and the tip energy is read from the
     eigenvalues under it.

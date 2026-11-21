@@ -185,7 +185,11 @@ def run_conductivity(
         # diverged from.
         tau=tau,
     )
-    _, ddd_paw = calculation.onecenter(becsum)
+    # A potential-only meta-GGA's PAW spheres take the cell-averaged ``c`` of
+    # this potential, as ``fixed_density_hamiltonians`` passes it to the band
+    # solve; without it ``onecenter`` raised after the solve (audit
+    # 2026-11-20c #6).
+    _, ddd_paw = calculation.onecenter(becsum, None if tau is None else potential.meta_c)
 
     if fermi_energy is None:
         fermi_energy = _fermi_level(calculation, eigenvalues)

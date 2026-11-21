@@ -228,7 +228,9 @@ before sampling the Fermi level, `smearing=` and `width=` for the shape of the e
 window, and `polarization=` for a tip that is not fully polarized.
 
 `mode="constant-current"` returns the corrugation instead: the height the tip has to sit
-at to hold the current fixed, which is what a microscope actually records. It wants a
+at to hold the current fixed, which is what a microscope actually records. It needs the
+scan range `heights=(lo, hi)`, in bohr from the tip plane, and the range has to end in the
+vacuum. A call without it gives an error. It wants a
 cell with a generous vacuum gap, more than the benchmark above has, because the tip must
 be able to withdraw far enough for the current to fall to the set-point everywhere,
 including over the middle of a hexagon where it is four orders of magnitude down. Points

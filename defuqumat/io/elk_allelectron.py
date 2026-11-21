@@ -13,7 +13,8 @@ Outside the spheres the pseudo density is the all-electron one. This module
 evaluates that density in Elk's representation -- a real-harmonic expansion on
 each muffin tin's logarithmic mesh and values on the interstitial grid -- and
 builds Elk's Kohn-Sham potential from it (:mod:`defuqumat.io.elk_potential`,
-without external fields: Elk adds its own ``bfieldc``/``bfcmt`` in ``genbs``),
+without external fields: Elk adds its own ``bfieldc``/``bfcmt`` in ``genbs``
+at the end of its first loop, so that loop runs without them),
 so the ``STATE.OUT`` written is one Elk's ``task = 1`` starts from directly.
 The user's suggestion (2026-11-17); measured in ``PLAN.md`` P181.
 
@@ -32,9 +33,10 @@ the shape of its core density at the nucleus are taken from it.
   relativistic dataset's core is flat at the nucleus where Elk's Dirac 1s
   density diverges weakly, ``r^(2(gamma - 1))``, 6 to 9 per cent over the
   innermost points for Si; those few points carried Elk's first residual
-  (0.066 Ha under LDA against 0.0052 with Elk's shape below 1e-4 bohr). A GGA
+  (0.066 Ha under LDA against 0.0052 with Elk's shape up to 1e-4 bohr). A GGA
   needs more: its potential near the nucleus depends on the cusp itself, so
-  below 0.01 bohr the template's density is taken as it is.
+  the template's density is taken as it is below 0.1/e = 0.037 bohr and joined
+  to ours by 0.1 bohr.
 * The interstitial density is the grid density with Elk's FFT box, its
   coefficients outside Elk's box dropped.
 
@@ -42,8 +44,9 @@ the shape of its core density at the nucleus are taken from it.
 waves to rebuild from), a one-centre correction reaching past Elk's
 muffin-tin radius (the all-electron density there would not be a smooth
 interstitial function; enlarge ``rmt``), a template of another cell, other
-atoms or another spin regime, and a spin-orbit run (no such cell has been run
-through Elk). A noncollinear state is written with its
+atoms or another spin regime, a DFT+U template (its ``vmatmt`` would be
+written beside our density and used in Elk's first diagonalisation), and a
+spin-orbit run (no such cell has been run through Elk). A noncollinear state is written with its
 magnetization vector (``ndmag = 3``); the magnetization a fully relativistic
 dataset's small component carries on its own (QE's ``pfunc_rel`` term) is
 left out, and the small component's charge is in every component, as QE's
@@ -57,17 +60,29 @@ from pathlib import Path
 
 import numpy as np
 
+from defuqumat.system.elements import element_symbol
+
 __all__ = ["all_electron_state", "write_elk_state_from"]
 
 FOURPI = 4.0 * np.pi
 
 
-def _match_atoms(calculation, geometry):
+def _match_atoms(calculation, geometry, moments=None):
     """``(order, shift)``: defuqumat atom of each Elk atom, and the frame shift.
 
     Elk's positions are ``ours + shift`` modulo the lattice for one common
     ``shift`` (``tshift`` moves the origin); found from the first atom and
     checked on every other.
+
+    **In a cell with an internal translation more than one shift maps the
+    positions** (two O at 0 and (1/2, 1/2, 1/2) in a cubic cell, NiO AFM-II),
+    and for a magnet they are not the same state: the wrong one writes our
+    moments onto the opposite sublattice of Elk's (audit 2026-11-20 #37).
+    ``moments = (ours, elk)``, our site moments by our atom and the template's
+    by Elk atom, ``(nat, ndmag)`` each, picks the shift whose map puts our
+    moments along the template's (the largest ``sum ours . elk``). What is left
+    tied goes to the shift nearest zero, and a tie that still maps different
+    moments is warned about.
     """
     system = calculation.system
     at = np.asarray(system.cell.at, dtype=float)
@@ -82,11 +97,15 @@ def _match_atoms(calculation, geometry):
     elk = np.asarray(geometry.positions, dtype=float)
     if len(ours) != len(elk):
         raise ValueError(f"the Elk template has {len(elk)} atoms and this calculation {len(ours)}")
-    names = [system.structure.species[t].name for t in system.structure.types]
-    elk_names = [geometry.species[i] for i, n in enumerate(geometry.natoms) for _ in range(n)]
-    best = None
+    # Our element is the dataset's, not the label's: a label is free text
+    # ('O_up', 'Cup'), and read as a symbol it can name another element.
+    names = [element_symbol(str(calculation.pseudos[t].element))
+             for t in system.structure.types]
+    elk_names = [_element(geometry.species[i])
+                 for i, n in enumerate(geometry.natoms) for _ in range(n)]
+    found = []
     for candidate in range(len(ours)):
-        if _element(names[candidate]) != _element(elk_names[0]):
+        if names[candidate] != elk_names[0]:
             continue
         shift = elk[0] - ours[candidate]
         order = []
@@ -94,24 +113,61 @@ def _match_atoms(calculation, geometry):
             d = ours + shift - position
             d -= np.round(d)
             hits = np.nonzero(np.linalg.norm(d @ at, axis=1) < 1e-5)[0]
-            if len(hits) != 1 or _element(names[hits[0]]) != _element(elk_names[k]):
+            if len(hits) != 1 or names[hits[0]] != elk_names[k]:
                 break
             order.append(int(hits[0]))
         else:
-            best = (np.array(order), shift @ at)
-            break
-    if best is None:
+            found.append((np.array(order), shift @ at))
+    if not found:
         raise ValueError(
             "the atoms of the Elk template and of this calculation do not coincide, "
             "even up to one common translation of the origin")
-    return best
+    if len(found) == 1:
+        return found[0]
+    if moments is not None:
+        mine, theirs = (np.asarray(m, dtype=float).reshape(len(ours), -1) for m in moments)
+        score = np.array([np.sum(mine[order] * theirs) for order, _ in found])
+        scale = max(np.abs(mine).max() * np.abs(theirs).max() * len(ours), 1e-300)
+        found = [f for f, x in zip(found, score) if x > score.max() - 1e-6 * scale]
+    def distance(f):  # of the shift from zero, modulo the lattice
+        frac = f[1] @ np.linalg.inv(at)
+        return float(np.linalg.norm((frac - np.round(frac)) @ at))
+
+    found.sort(key=distance)
+    if moments is not None and len(found) > 1:
+        pattern = mine[found[0][0]]
+        if any(not np.allclose(mine[order], pattern, atol=1e-3) for order, _ in found[1:]):
+            import warnings
+
+            warnings.warn(
+                f"{len(found)} translations map this cell onto the Elk template, and "
+                "they put our site moments on different Elk atoms, while the "
+                "template's moments do not tell them apart. The one nearest zero "
+                "is taken; give the template the moments of this run (bfcmt in "
+                "elk.in, whose moment points against the field) to fix the map.",
+                stacklevel=3)
+    return found[0]
+
+
+def _site_moments(state) -> np.ndarray:
+    """``(natmtot, ndmag)``: the muffin-tin moment of each Elk atom, ``l = 0`` of ``magmt``."""
+    species_of = state.geometry.species_of()
+    out = np.zeros((len(species_of), state.ndmag))
+    for ias, s in enumerate(species_of):
+        r = np.asarray(state.rsp[s], dtype=float)[:state.nrmt[s]]
+        for k in range(state.ndmag):
+            out[ias, k] = np.sqrt(FOURPI) * np.trapezoid(
+                np.asarray(state.magmt[0, :len(r), ias, k]) * r ** 2, r)
+    return out
 
 
 def _element(name: str) -> str:
-    """The element symbol of a species name: ``'Si'``, ``'Si1'``, Elk's ``'O.in'``."""
-    name = str(name).strip().strip("'").split(".")[0]
-    letters = "".join(ch for ch in name if ch.isalpha())
-    return letters[:2].capitalize() if len(letters) > 1 and letters[1].islower() else letters[:1].upper()
+    """The element symbol of an Elk species file name, ``'O.in'`` or ``'Ni_afm.in'``.
+
+    The stem is read by ``pw.x``'s label rule (:func:`element_symbol`): a tag
+    after a digit, ``-`` or ``_`` is dropped, so ``'O_up'`` is oxygen.
+    """
+    return element_symbol(str(name).strip().strip("'").split(".")[0])
 
 
 def _qe_to_elk(lmax: int) -> np.ndarray:
@@ -158,26 +214,55 @@ def _grid_coefficients(field, at):
     return flat[..., keep], mill[keep], mill[keep] @ b
 
 
-def _muffin_tin_expansion(c, G, center, lmax, r):
-    """``f_lm(r)`` of ``sum_G c_G e^{iGr}`` about ``center``, Elk harmonics, real."""
-    from scipy.special import spherical_jn
+def _expansion_basis(G, lmax):
+    """``(rg, shells, indicator)``: what the expansion needs that no atom changes.
+
+    ``rg`` is ``(nG, lmmax)`` real harmonics of every ``G``, ``shells`` the
+    distinct ``|G|`` and ``indicator`` the sparse ``(nshell, nG)`` matrix of
+    ones that sums a ``G`` array into its shells (audit 2026-11-20 #22).
+    """
+    from scipy.sparse import csr_matrix
 
     from defuqumat.io.elk_density import real_spherical_harmonics
 
-    c = np.atleast_2d(c)
     gn = np.linalg.norm(G, axis=1)
-    phase = np.exp(1j * G @ center)[None, :] * c
     rg = real_spherical_harmonics(lmax, np.where(gn[:, None] > 0, G, [0.0, 0.0, 1.0]))
     shells, inverse = np.unique(np.round(gn, 10), return_inverse=True)
+    indicator = csr_matrix((np.ones(len(gn)), (inverse, np.arange(len(gn)))),
+                           shape=(len(shells), len(gn)))
+    return rg, shells, indicator
+
+
+def _bessel_table(shells, lmax, r):
+    """``[j_l(|G| r)]`` for ``l = 0..lmax``, ``(nshell, nr)`` each: one per species mesh."""
+    from scipy.special import spherical_jn
+
+    return [spherical_jn(l, np.outer(shells, r)) for l in range(lmax + 1)]
+
+
+def _muffin_tin_expansion(c, G, center, lmax, r, basis=None, bessel=None):
+    """``f_lm(r)`` of ``sum_G c_G e^{iGr}`` about ``center``, Elk harmonics, real.
+
+    ``basis`` (:func:`_expansion_basis`) and ``bessel`` (:func:`_bessel_table`)
+    are built once for all atoms when given. The shell sum is one sparse
+    product, which adds the terms of a shell in the order of ``G`` as the
+    ``np.add.at`` it replaced did, so the result is the same to the bit.
+    """
+    c = np.atleast_2d(c)
+    rg, shells, indicator = _expansion_basis(G, lmax) if basis is None else basis
+    jls = _bessel_table(shells, lmax, r) if bessel is None else bessel
+    phase = np.exp(1j * G @ center)[None, :] * c
     out = np.zeros((c.shape[0], (lmax + 1) ** 2, len(r)))
     for l in range(lmax + 1):
-        jl = spherical_jn(l, np.outer(shells, r))
-        for m in range(-l, l + 1):
-            lm = l * (l + 1) + m
-            amplitude = np.zeros((c.shape[0], len(shells)), dtype=complex)
-            for k in range(c.shape[0]):
-                np.add.at(amplitude[k], inverse, phase[k] * rg[:, lm])
-            out[:, lm] = (FOURPI * (1j ** l) * amplitude @ jl).real
+        block = slice(l * l, (l + 1) ** 2)
+        # (ncomp, nshell, 2l + 1): the sum over each shell of c_G e^{iG tau}
+        # R_lm(G), one l at a time so the complex (nG, 2l + 1) product is the
+        # largest temporary, not an (nG, lmmax) one.
+        amplitude = np.stack([indicator @ (phase[k][:, None] * rg[:, block])
+                              for k in range(c.shape[0])])
+        for m in range(2 * l + 1):
+            out[:, l * l + m] = (FOURPI * (1j ** l) * np.ascontiguousarray(amplitude[:, :, m])
+                                 @ jls[l]).real
     return out
 
 
@@ -212,23 +297,26 @@ def _onecentre(pseudo, paw_species, becsum):
 
 
 #: How the ``l = 0`` density near each nucleus is taken, by functional
-#: (measured on Si2, P181): ``(r_join, scaled)``. Below ``r_join / 10`` the
+#: (measured on Si2, P181): ``(r_join, scaled)``. Below ``r_join / e`` the
 #: template's density, joined to ours by ``r_join`` with a ``C^2`` step in
-#: ``log r``; ``scaled`` rescales the template to ours at ``r_join`` (Elk's
-#: Dirac *shape* on our density) instead of taking it as it is.
+#: the natural ``log r``, over a factor ``e`` and not a decade (audit
+#: 2026-11-20 #6; the measured rows below are of this join); ``scaled``
+#: rescales the template to ours at ``r_join`` (Elk's Dirac *shape* on our
+#: density) instead of taking it as it is.
 CORE_REGION = {
-    # LDA: Elk's shape below 1e-4 bohr, first residual 0.0052 Ha against 0.083
-    # from scratch, 16 loops against 19; the template outright below 0.01
-    # bohr gives 0.0172 and 17.
+    # LDA: Elk's shape up to 1e-4 bohr (outright below 3.7e-5), first residual
+    # 0.0052 Ha against 0.083 from scratch, 16 loops against 19; the template
+    # outright below 0.037 bohr, (0.1, False), gives 0.0172 and 17.
     "lda": (1.0e-4, True),
     # A GGA carries the Laplacian of the density, and its potential near the
     # nucleus (-704 Ha at 1e-4 bohr on Si) depends on the Dirac cusp itself:
     # our shape matched below 1e-4 gave 17 Ha against 0.74 from scratch, Elk's
-    # own core region below 0.01 bohr gives 0.73 and 15 loops against 14.
+    # own core region (outright below 0.037 bohr, joined by 0.1) gives 0.73 and
+    # 15 loops against 14.
     "gga": (0.1, False),
     # A spin-polarized GGA, measured on O2 stretched to 3.4 bohr under PBE: the
     # unpolarized choice above starts 31 times closer (0.12 Ha against 4.41 from
-    # scratch) and then needs 49 loops against Elk's 32, where Elk's shape below
+    # scratch) and then needs 49 loops against Elk's 32, where Elk's shape up to
     # 1e-4 bohr starts at 177 Ha and needs 31 (the PAW core everywhere: 203 Ha,
     # 35). The first residual does not predict the count here. One cell each.
     "gga-spin": (1.0e-4, True),
@@ -240,7 +328,12 @@ def _dirac_core(r, ours, template, r_join, scaled, decades: float = 1.0):
 
     A join at one point is continuous but not smooth, and a gradient-corrected
     potential turns the kink into a spike, so the join is a ``C^2`` step
-    (``6t^5 - 15t^4 + 10t^3``) over one decade of ``r``.
+    (``6t^5 - 15t^4 + 10t^3``) in the natural log of ``r``, from ``r_join /
+    e**decades`` to ``r_join``. With the default ``decades = 1`` that is a
+    factor ``e``, not ten: below ``r_join / e`` the result is the template
+    alone (0.0357 bohr is the last such point of Elk's Si mesh at ``r_join =
+    0.1``), and from ``r_join`` on it is ours. The P181 rows were measured with
+    this join, so the name ``decades`` is kept and the log is not changed.
     """
     m = int(np.searchsorted(r, r_join))
     if not 0 < m < len(r) or template[m] == 0.0:
@@ -264,11 +357,24 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     """
     from defuqumat.io.elk import ElkState
     from defuqumat.io.elk_potential import (crystal_symmetrizer, kohn_sham_potential,
-                                            read_elk_parameters)
+                                            read_elk_parameters, refuse_untranscribed)
 
     template = Path(template)
     base = ElkState.read(template, allow_noncollinear=True)
     params = read_elk_parameters(template)
+    refuse_untranscribed(params, base.magmt is not None)
+    if base.dftu != 0:
+        # readstate.f90:251 reads vmatmt when the run and the file both have
+        # dftu, and gndstate.f90 diagonalises with it (genevfsv) before
+        # genvmatmt rebuilds it: a matrix of the template's density beside ours.
+        raise NotImplementedError(
+            f"the Elk template is a DFT+U state (dftu = {base.dftu}): its potential "
+            "matrix vmatmt would be written beside our density, and Elk reads it "
+            "and uses it in its first diagonalisation. That matrix belongs to the "
+            "template's density, and the DFT+U potential matrix of ours is not "
+            "computed here. Take the template from the same Elk input without "
+            "dft+u; Elk run with dft+u then starts its matrix at zero, since the "
+            "file has none (readstate.f90:251).")
     if core_region == "auto":
         gga = params.xctype[0] >= 20
         polarized = int(calculation.nspin_mag) > 1
@@ -299,7 +405,10 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
             f"{held}; run Elk in the same spin regime for the template (ndmag = 1 "
             "for nspin = 2, a noncollinear ndmag = 3 for a magnetic spinor run)")
     geometry = base.geometry
-    order, shift = _match_atoms(calculation, geometry)
+    pair = None
+    if spinpol and getattr(result, "site_moments", None) is not None:
+        pair = (np.asarray(result.site_moments), _site_moments(base))
+    order, shift = _match_atoms(calculation, geometry, moments=pair)
 
     at = np.asarray(system.cell.at, dtype=float)
     rho = np.asarray(result.density, dtype=float)
@@ -320,11 +429,15 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
         if result.becsum[t] is not None:
             for k, a in enumerate(atoms):
                 becsum_of[a] = (t, np.asarray(result.becsum[t])[:, k])
+    basis = _expansion_basis(G, lmaxo)
+    bessel = {}
     for ias in range(natmtot):
         s = species_of[ias]
         nr, nri = base.nrmt[s], params.nrmti[s]
         r = np.asarray(base.rsp[s], dtype=float)[:nr]
-        f = _muffin_tin_expansion(c, G, centres[ias], lmaxo, r)
+        if s not in bessel:
+            bessel[s] = _bessel_table(basis[1], lmaxo, r)
+        f = _muffin_tin_expansion(c, G, centres[ias], lmaxo, r, basis, bessel[s])
         t, becsum = becsum_of[int(order[ias])]
         pseudo = calculation.pseudos[t]
         d = _onecentre(pseudo, calculation.paw.species[t], becsum)
@@ -376,10 +489,7 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     if spinpol:
         state = dataclasses.replace(state, magmt=magmt,
                                     magir=np.moveaxis(interstitial[1:], 0, -1))
-        moments = np.array([[np.sqrt(FOURPI) * np.trapezoid(
-            magmt[0, :base.nrmt[s], ias, k] * np.asarray(base.rsp[s])[:base.nrmt[s]] ** 2,
-            np.asarray(base.rsp[s])[:base.nrmt[s]]) for k in range(ndmag)]
-            for ias, s in enumerate(species_of)])
+        moments = _site_moments(state)
         moments = np.round(moments[:, 0] if ndmag == 1 else moments, 3)
     if spinpol and params.xctype[0] >= 20:
         import warnings
@@ -390,7 +500,7 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
             "taken outright, although that one started 31 times closer; what sets the "
             "count is open (PLAN.md P181). The state is a valid start, not a faster "
             "one.", stacklevel=3)
-    symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments)
+    symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments, params=params)
     potential = kohn_sham_potential(state, params, symmetry)
     ry = {k: 2.0 * np.asarray(v) for k, v in potential.items()}
     state = dataclasses.replace(

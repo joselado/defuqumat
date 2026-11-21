@@ -41,8 +41,9 @@ of the oxygen (Gross et al., PRL 107, 086101 (2011); the probe-particle model of
 Krejci et al., PRB 95, 045407 (2017), which models a CO tip as px and py), ``"Pt"``
 and ``"Cu"`` the s orbital, ``"W"`` the ``dz2`` orbital (Chen's argument
 for atomic resolution with tungsten), and ``"Pb"`` the 6p shell -- in the metal
-the Fermi level lies in the 6p band, 6s being about 10 eV below (Bi, the
-neighbour: 6s at -1.064 Ry, 6p at -0.336 Ry). A mixed tip (W with its s and
+the Fermi level lies in the 6p band, 6s being about 8.5 eV below (the shipped
+``Pb.pbe-dn-rrkjus_psl.1.0.0.UPF``: 6s at -0.8849 Ry, 6p at -0.2571 Ry, 0.6279
+Ry apart). A mixed tip (W with its s and
 ``dz2``, CO with its sigma part) needs the share of each orbital at ``E_F`` on
 the apex, which is a PDOS of a tip model and is not here; :func:`from_upf` builds
 one from shares you give.
@@ -75,16 +76,18 @@ def orbital_eigenvalue(path, label: str) -> float:
 
     UPF v2 stores it as ``pseudo_energy`` on each ``PP_CHI``; a file without it
     (or with 0, as older files write) is refused, since the Bardeen weight needs
-    it.
+    it. A label that two orbitals share is refused too
+    (:func:`_refuse_a_shared_label`).
     """
     text = Path(path).read_text(errors="replace")
+    found = []
     for tag in re.finditer(r"<PP_CHI\.\d+([^>]*)>", text):
         attributes = dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', tag.group(1)))
         if attributes.get("label", "").strip().upper() == label.strip().upper():
-            energy = float(attributes.get("pseudo_energy", "0") or 0.0)
-            if energy == 0.0:
-                break
-            return energy
+            found.append(float(attributes.get("pseudo_energy", "0") or 0.0))
+    _refuse_a_shared_label(path, label, len(found))
+    if found and found[0] != 0.0:
+        return found[0]
     raise ValueError(
         f"{Path(path).name} does not store the eigenvalue of its {label} orbital "
         "(pseudo_energy), which the Bardeen weight needs; use a pslibrary file")
@@ -95,12 +98,33 @@ def _orbital(path: str, label: str):
     from defuqumat.pseudo.upf import read_upf
 
     data = read_upf(path)
-    for orbital in data.orbitals:
-        if orbital.label.strip().upper() == label.strip().upper():
-            r = np.asarray(data.r, dtype=float)
-            chi = np.asarray(orbital.chi, dtype=float)
-            return r, chi, int(orbital.l), orbital_eigenvalue(path, label)
+    found = [orbital for orbital in data.orbitals
+             if orbital.label.strip().upper() == label.strip().upper()]
+    _refuse_a_shared_label(path, label, len(found))
+    if found:
+        r = np.asarray(data.r, dtype=float)
+        chi = np.asarray(found[0].chi, dtype=float)
+        return r, chi, int(found[0].l), orbital_eigenvalue(path, label)
     raise ValueError(f"{Path(path).name} has no orbital {label!r}")
+
+
+def _refuse_a_shared_label(path, label: str, count: int) -> None:
+    """Two orbitals under one label are the two ``j`` of a fully relativistic file.
+
+    ``Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF`` has two ``6P`` (``pseudo_energy``
+    -0.4085 and -0.2726 Ry, ``j = 1/2`` and ``3/2``) and two ``5D``. Taking the
+    first would give the tip the weight of one ``j`` component without saying
+    so, and a tip whose ``p_1/2`` and ``p_3/2`` carry different weights is a
+    spinor tip channel, which is not implemented (``PLAN.md`` P179, "What is
+    outstanding").
+    """
+    if count > 1:
+        raise NotImplementedError(
+            f"{Path(path).name} has {count} orbitals labelled {label!r}, which is "
+            "a fully relativistic dataset with one orbital per j: a tip whose "
+            "j = l - 1/2 and j = l + 1/2 orbitals carry different weights is a "
+            "spinor tip channel, which is not implemented. Use the scalar-"
+            "relativistic dataset of the same element")
 
 
 def bardeen_weight(path, label: str, kappa: float, cutoff: float = 16.0) -> float:

@@ -143,13 +143,24 @@ on the torque, in Ry per radian.
     has its own first-order term, on the page about spin spirals. The first run
     must be spin-polarized, and the second needs `noncolin` and `lspinorb`.
     `get_anisotropy` runs without `nosym`: each direction is solved on the wedge
-    of its own magnetic group. The projected decomposition off the input's axis
-    still needs `nosym`. The torques (`get_torque`, `get_orientation_torque`,
+    of its own magnetic group. The projected decomposition (`projected=True`)
+    needs the whole k-grid, so it needs `nosym` at every direction, the input's
+    own axis included. The reason is that the magnetic group permutes the site,
+    orbital and spin labels, and a wedge keeps only the sum over them. The torques (`get_torque`, `get_orientation_torque`,
     `get_relaxed_orientation`) need `nosym` at every orientation, the input's
     own included, because a torque is a derivative of a sum over k in the
     direction of the moment, and a wedge of the magnetic group does not keep it.
-    A run from `with_turning_moments()` also works, because its wedge has only
-    the identity and the inversion. For `get_anisotropy`, a first run whose magnetization is genuinely
+    `get_torque` and `get_orientation_torque` also run when the spinor
+    calculator comes from `with_turning_moments()`, as in
+    `scalar.get_torque(spinor.with_turning_moments())`. This works at every
+    orientation, because its wedge has only the identity and the inversion,
+    and the inversion leaves a torque unchanged.
+    On tetragonal cobalt this wedge has 10 of the 18 k-points, and the torque
+    is the same as with `nosym` to $2\times10^{-11}$ Ry per radian. With a PAW
+    dataset a turned orientation still needs `nosym`, because we checked the
+    wedge only on ultrasoft cells. `get_relaxed_orientation` always needs
+    `nosym`, because it turns one calculation from step to step, and this is
+    not written for a run with symmetry. For `get_anisotropy`, a first run whose magnetization is genuinely
     noncollinear gives an error, because the moment is laid along one axis.
 
     A PAW dataset needs the one-file route, meaning the same fully relativistic
@@ -173,6 +184,14 @@ on the torque, in Ry per radian.
     occupations of the first run. `get_orientation_torque` and
     `get_relaxed_orientation` do take PAW on the one-file route. They also take
     a genuinely noncollinear first run, and turn its texture as it is.
+
+    All the calls of this page that diagonalize at a fixed density give an
+    error when the bands are in single precision, meaning
+    `DEFUQUMAT_BAND_PRECISION` set to `single` or `mixed`. These are
+    `get_anisotropy`, `get_force_theorem`, `get_first_order_soc`, `get_torque`,
+    `get_orientation_torque` and `get_relaxed_orientation`. The reason is that
+    the anisotropy is a small difference of band energies, of the size of the
+    round-off of single precision.
 
     `rotate_moments` needs a magnetic noncollinear run with spin-orbit coupling,
     so it gives an error without `lspinorb` or with `soc_scale = 0`, where every
@@ -199,7 +218,10 @@ on the torque, in Ry per radian.
     only a guess. An unchanged $|M|$ does not show that the lowest solution
     was found. It
     gives an error for a Hubbard $U$ on a PAW dataset and for a fixed tensor
-    moment. A run
+    moment. It also gives an error for a potential-only meta-GGA (`tb09`,
+    `bj06`). In a spinor run the kinetic energy density $\tau$ has a vector
+    part, like the magnetization, and the step turns the magnetization but not
+    $\tau$. A run
     with symmetry needs `calc.with_turning_moments()` first. This keeps only the
     identity and the inversion, because only these stay symmetries when all
     moments turn together, and it builds the k-points again with them. Without
@@ -216,7 +238,15 @@ on the torque, in Ry per radian.
     moment while the density relaxes, so the code warns when a direction
     drifted more than one degree from where it started, and when a direction
     did not converge. Read `converged` and `drifts` on the result before the
-    anisotropy itself.
+    anisotropy itself. `get_relaxed_anisotropy` gives an error if you give
+    `checkpoint_dir` in the call with more than one direction, and it does not
+    take the `checkpoint_dir` of the calculator. With one directory, the second
+    direction would continue from the state of the first one, with the moment
+    along the first direction. On tetragonal cobalt this gave the same energy
+    for $x$ and $z$, so an anisotropy of 0.000 meV, where the two separate runs
+    differ by 0.4225 meV. To restart a long run, you run each direction with
+    `run_relaxed_direction` of `defuqumat.workflows.anisotropy` and a directory
+    of its own.
 
 The notebooks for this page are
 [36, magnetocrystalline anisotropy](https://github.com/joselado/defuqumat/blob/master/notebooks/36_magnetic_anisotropy.ipynb)

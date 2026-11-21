@@ -162,18 +162,55 @@ class NsSymmetry:
     **inverse** permutation
     while the rotation carries ``s`` itself. For a collinear run ``S_s`` is
     absent, the spin axis is a spectator, and what is left is the expression
-    ``new_ns.f90`` writes; for a spinor run it is the four-component one
-    ``new_ns_nc`` writes, and the spin factor is the only difference.
+    ``new_ns.f90`` writes, ``d(m0,m1) nr(m0,m00) d(m00,m2)`` = ``D^T ns D`` at
+    ``irt(isym, na)``, re-indexed by ``s -> s^-1``. A spinor run uses the same
+    pairing with the spin factor added.
+
+    **That is not the pairing ``new_ns_nc`` writes.** Its orbital factor is
+    ``d(m1,m3) nr(m3,m4) d(m2,m4)`` = ``D ns D^T`` at the same
+    ``irt(isym, na)``, so it pairs ``D_s`` with ``irt(s)`` where this code
+    (and ``new_ns``, and ``PAW_symmetrize``) pairs ``D_s`` with ``irt(s^-1)``.
+    The two sums are the same only when every orbit permutation is its own
+    inverse. That holds on hcp Pt, the cell this branch was checked on against
+    ``pw.x`` (``OPEN.md`` Part XXXI, a 2-cycle), and fails on any three-fold
+    orbit (kagome, a C3 or a 3_1 screw). There the average written here is
+    still a projector, and the ``new_ns_nc`` pairing built from the same tables
+    is not (``tests/unit/test_hubbard_spinor.py``, 8 of 24 operations
+    3-cycles); no ``pw.x`` run on such a cell has been compared, so a
+    disagreement there is not by itself evidence against this code.
+
+    **A nonmagnetic spinor run also gets the Kramers partner** (``kramers``,
+    audit 2026-11-20 #14, the user's decision). Its k-set was reduced with
+    time reversal, ``k`` and ``-k`` merged, while the operations above are the
+    spatial ones only: in a nonmagnetic group no operation carries ``t_rev``.
+    With inversion in the group that is harmless, since inversion also maps
+    ``k`` to ``-k``. Without it (wurtzite, zincblende, any polar or chiral
+    crystal) the time-reversal-odd part of ``ns`` that the spatial group
+    allows survived, and its value depended on which member of each ``k, -k``
+    pair the reduction kept. So after the spatial average ``ns`` is averaged
+    with its time-reversed image, ``conj(S) ns^T S^T`` with ``S = i sigma_y``
+    and the transpose joint in ``m`` and spin, the law of
+    :meth:`_time_reverse` with the spin factor of time reversal itself. **This
+    is a departure from ``pw.x``**: ``new_ns_nc`` declares ``time_reversal``
+    and ``sigmay2`` (``new_ns.f90:335``, ``:352``) and uses neither, so on such
+    a crystal a wedge run of ``pw.x`` keeps the odd part this code removes. A
+    magnetic run (a magnetization, ``t_rev`` operations), ``noinv``, a fixed
+    tensor moment and a k-set that was not reduced keep the spatial average
+    alone. An explicit ``K_POINTS`` list counts as reduced unless it is a whole
+    grid (:func:`~defuqumat.system.kpoints.covers_a_whole_grid`), since
+    ``irreducible_BZ`` takes such a list with time reversal on; the flag of an
+    automatic grid alone missed a wedge written out as a list (audit
+    2026-11-20b #10).
     """
 
     __slots__ = (
         "operators", "sources", "slots", "ldims", "nsym", "shape", "spin",
-        "time_reversed",
+        "time_reversed", "kramers",
     )
 
     def __init__(
         self, operators, sources, slots, ldims, nsym, shape, spin=None,
-        time_reversed=None,
+        time_reversed=None, kramers=False,
     ):
         self.operators = operators
         self.sources = sources
@@ -183,11 +220,36 @@ class NsSymmetry:
         self.shape = shape
         self.spin = spin
         self.time_reversed = time_reversed
+        self.kramers = bool(kramers)
 
     def apply(self, ns: jnp.ndarray) -> jnp.ndarray:
         """The symmetrised occupation matrix, same shape as the input."""
-        if self.nsym <= 1:
-            return ns
+        if self.nsym > 1:
+            ns = self._spatial_average(ns)
+        if self.kramers:
+            ns = 0.5 * (ns + self.kramers_image(ns))
+        return ns
+
+    @classmethod
+    def kramers_image(cls, ns: jnp.ndarray) -> jnp.ndarray:
+        """``ns`` of the time-reversed states: ``conj(S) ns^T S^T``, ``S = i sigma_y``.
+
+        Time reversal is ``i sigma_y K``, and ``K`` leaves the real-harmonic
+        orbitals alone, so on rho it is ``S rho^* S^dagger``. On ``ns`` = rho^T
+        that is the joint transpose of :meth:`_time_reverse` followed by
+        ``conj(S) x S`` on the packed pair. ``S = [[0, 1], [-1, 0]]`` is real,
+        so the factor is a signed swap: ``uu <- dd``, ``ud <- -du``,
+        ``du <- -ud``, ``dd <- uu`` of the transposed blocks. The orbital
+        matrix of the charge comes back transposed, and the trace of every
+        component of the spin moment reverses.
+        """
+        transposed = jnp.take(
+            ns, jnp.asarray(cls._SPIN_TRANSPOSE), axis=0).swapaxes(-1, -2)
+        return jnp.stack([transposed[3], -transposed[2], -transposed[1],
+                          transposed[0]])
+
+    def _spatial_average(self, ns: jnp.ndarray) -> jnp.ndarray:
+        """The average over the spatial operations, with their ``t_rev``."""
         out = jnp.zeros_like(ns)
         for operator, sources, slots, ldim in zip(
             self.operators, self.sources, self.slots, self.ldims
@@ -245,8 +307,14 @@ class NsSymmetry:
         return jnp.where(mask, transposed, gathered)
 
 
-def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
-    """Precompute the average. ``None`` when the group is trivial.
+def build_ns_symmetry(setup, cell, structure, symmetries,
+                      kramers: bool = False) -> NsSymmetry | None:
+    """Precompute the average. ``None`` when the group is trivial and ``kramers`` is off.
+
+    ``kramers`` adds the time-reversed image of a nonmagnetic spinor ``ns``
+    (:class:`NsSymmetry`); the caller decides it, since it needs the k-set and
+    the magnetization. With ``symmetries`` ``None`` or trivial it is the only
+    average.
 
     **A spinor setup gains the spin factor**, which is
     :func:`~defuqumat.system.symmetry.spin_rotations` -- ``d_spin_ldau``. The spin
@@ -276,8 +344,14 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
     from defuqumat.paw.symmetry import harmonic_rotations
     from defuqumat.system.symmetry import atom_mapping, spin_rotations
 
-    if setup is None or symmetries is None or symmetries.nsym <= 1:
+    if setup is None:
         return None
+    kramers = bool(kramers and setup.noncolin)
+    if symmetries is None or symmetries.nsym <= 1:
+        if not kramers:
+            return None
+        return NsSymmetry(operators=(), sources=(), slots=(), ldims=(), nsym=1,
+                          shape=(setup.nslot, setup.ldmx), kramers=True)
 
     lmax = max(setup.species[t].l for t in setup.types)
     rotations = harmonic_rotations(cell, symmetries, lmax)
@@ -337,6 +411,7 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
         shape=(setup.nslot, setup.ldmx),
         spin=spin,
         time_reversed=time_reversed,
+        kramers=kramers,
     )
 
 
@@ -602,10 +677,23 @@ def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
     definite orbital. This is a starting guess and not a result, so it costs
     SCF iterations at worst and cannot be wrong, and ``pw.x``'s ``ns_adj``
     does the same (``notes/DEGENERACY-NEXT.md`` item 5).
+
+    **A spinor ``ns`` is one matrix, not four channels.** ``ns_adj``'s
+    noncollinear branch assembles the ``2 ldim`` matrix ``f`` from the four
+    packed blocks, ``f(s1 ldim + m1, s2 ldim + m2) = ns[2 s1 + s2, m1, m2]``
+    (the packed index is ``ns_nc``'s own, so there is no transpose), diagonalises
+    it whole and sets eigenvalue ``j = ispin ldim + m`` of its ascending
+    spectrum, so ``ispin`` names the lower or the upper half of the spectrum
+    and not a spin block. All four blocks are written back from the rebuilt
+    matrix. Looping over the packed axis instead diagonalised the off-diagonal
+    ``ud`` block as if it were a channel, and left ``ns`` non-Hermitian
+    (audit 2026-11-20c #7).
     """
     if not setup.starting_ns:
         return ns
     values = np.array(ns)
+    if getattr(setup, "noncolin", False):
+        return jnp.asarray(_adjust_spinor_ns(values, setup))
     for slot, t in enumerate(setup.types):
         ldim = setup.ldims[slot]
         for spin in range(values.shape[0]):
@@ -624,3 +712,36 @@ def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
                 vectors * eigenvalues
             ) @ vectors.conj().T
     return jnp.asarray(values)
+
+
+def _adjust_spinor_ns(values: np.ndarray, setup) -> np.ndarray:
+    """``ns_adj``'s noncollinear branch on a packed ``(4, nslot, ldmx, ldmx)`` ``ns``."""
+    # The off-diagonal spin blocks are complex whatever the input's dtype says.
+    values = values.astype(np.result_type(values.dtype, 1j), copy=False)
+    for slot, t in enumerate(setup.types):
+        ldim = setup.ldims[slot]
+        requested = {
+            ispin * ldim + m: value
+            for (kind, ispin, m), value in setup.starting_ns.items()
+            if kind == t and ispin < 2 and m < ldim
+        }
+        if not requested:
+            continue
+        # ``f(m1, m2) = ns_nc(m1, m2, 1)``, ``f(m1, ldim + m2) = ns_nc(.., 2)``,
+        # ``f(ldim + m1, m2) = ns_nc(.., 3)``, ``f(ldim + m1, ldim + m2) =
+        # ns_nc(.., 4)``.
+        full = np.block([
+            [values[2 * s1 + s2, slot, :ldim, :ldim] for s2 in range(2)]
+            for s1 in range(2)
+        ])
+        eigenvalues, vectors = np.linalg.eigh(full)
+        for j, value in requested.items():
+            if value >= 0.0:
+                eigenvalues[j] = value
+        # ``temp = sum_i vet(m1, i) lambda(i) conjg(vet(m2, i))``.
+        full = (vectors * eigenvalues) @ vectors.conj().T
+        for s1 in range(2):
+            for s2 in range(2):
+                values[2 * s1 + s2, slot, :ldim, :ldim] = full[
+                    s1 * ldim:(s1 + 1) * ldim, s2 * ldim:(s2 + 1) * ldim]
+    return values

@@ -196,3 +196,106 @@ def test_the_flag_survives_for_spin():
 
     points = KPoints.automatic((4, 4, 4), (1, 1, 1), FCC, rotations=_E)
     assert is_reduced(for_spin(points, 2)) is True
+
+
+@pytest.mark.parametrize("ibrav, celldm, mesh, shift", [
+    (4, [5.8, 0, 3.0, 0, 0, 0], (9, 9, 1), (0, 0, 0)),
+    (4, [5.8, 0, 3.0, 0, 0, 0], (7, 7, 1), (0, 0, 0)),
+    (2, [10.2, 0, 0, 0, 0, 0], (11, 11, 1), (0, 0, 0)),
+    (2, [10.2, 0, 0, 0, 0, 0], (64, 1, 1), (1, 0, 0)),
+])
+def test_a_whole_grid_printed_to_seven_decimals_is_still_a_whole_grid(ibrav, celldm, mesh, shift):
+    """A whole grid written in ``tpiba`` units to 7 decimals, as ``pw.x`` prints it (audit 2026-11-20b #33).
+
+    ``covers_a_whole_grid`` compared coordinates in exact 1e-6 buckets, so a
+    print error of about 1e-7 split one plane into two buckets, and the whole
+    9x9x1 hexagonal grid and the whole 11x11x1 grid of an fcc cell were read as
+    possible wedges and refused by the whole-zone traces. The grid is now
+    compared on snapped plane indices. The time-reversal half of the same
+    printed grid, with equal weights, is still refused.
+    """
+    from defuqumat.config import SINGLE
+    from defuqumat.system.kpoints import covers_a_whole_grid
+
+    cell = Cell.from_ibrav(ibrav, celldm)
+    points, weights = monkhorst_pack(mesh, shift)
+    printed = np.round(np.asarray(cell.k_to_cartesian(np.asarray(points))), 7)
+    for precision in (None, SINGLE):
+        options = {} if precision is None else {"precision": precision}
+        whole = KPoints.from_cartesian(printed, weights, **options)
+        assert covers_a_whole_grid(whole, cell), precision
+
+    crystal = np.asarray(points)
+    keep, seen = [], set()
+    for i, k in enumerate(crystal):
+        key = tuple(np.round((k - np.floor(k)) * np.asarray(mesh) * 2).astype(int) % (2 * np.asarray(mesh)))
+        minus = tuple(np.round((-k - np.floor(-k)) * np.asarray(mesh) * 2).astype(int) % (2 * np.asarray(mesh)))
+        if minus in seen:
+            continue
+        seen.add(key)
+        keep.append(i)
+    half = KPoints.from_cartesian(printed[keep], np.full(len(keep), 1.0))
+    assert len(keep) < len(crystal)
+    assert not covers_a_whole_grid(half, cell)
+
+
+_LOW_SYMMETRY_BOX = """&control
+ calculation = '{calculation}'
+/
+&system
+ ibrav = 1, celldm(1) = 8.0, nat = 3, ntyp = 2, ecutwfc = 20.0,
+ occupations = 'smearing', degauss = 0.02
+/
+&electrons
+/
+ATOMIC_SPECIES
+ C 12.0 C.upf
+ H 1.0 H.upf
+ATOMIC_POSITIONS bohr
+ C  0.10  0.20  0.30
+ H  1.90  0.40  0.70
+ H -0.50  1.70  0.20
+K_POINTS tpiba
+6
+0.0 0.0 0.0 1.0
+0.0 0.0 0.1 1.0
+0.0 0.0 0.2 1.0
+0.0 0.0 0.3 1.0
+0.0 0.0 0.4 1.0
+0.0 0.0 0.5 1.0
+"""
+
+
+def test_a_bands_list_is_taken_as_written():
+    """``calculation = 'bands'`` with a ``K_POINTS tpiba`` list (audit 2026-11-20b #7).
+
+    ``setup.f90:621`` calls ``irreducible_BZ`` only ``IF (.NOT. lbands)``, so
+    ``pw.x`` takes a band list as written: QE's own ``metaGGA-2.in``, a
+    molecule in a cubic box with six points along z, prints ``number of k
+    points= 6``. The builder completed the list to the crystal's group (only
+    the identity here) for every calculation, which gave 16 points, the
+    images along x and y put after each point. The same list in an SCF or an
+    NSCF run is still completed, and a bands list stays as written after
+    ``with_spin``, which rebuilds the k-set. A band list of zero weights,
+    which QE accepts, is read too.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+
+    written = np.array([[0.0, 0.0, 0.1 * n] for n in range(6)])
+    bands = build_system(parse_pw_input(_LOW_SYMMETRY_BOX.format(calculation="bands")))
+    assert bands.symmetry_group().nsym == 1
+    assert bands.kpoints.nk == 6
+    assert np.abs(np.asarray(bands.kpoints.coords) - written).max() < 1e-12
+    assert np.asarray(bands.kpoints.weights) == pytest.approx(np.full(6, DEGSPIN / 6))
+    respun = bands.with_spin(nspin=2, starting_magnetization=[0.5, 0.0])
+    assert respun.kpoints.nk == 6
+    assert np.abs(np.asarray(respun.kpoints.coords) - written).max() < 1e-12
+
+    for calculation in ("scf", "nscf"):
+        system = build_system(parse_pw_input(
+            _LOW_SYMMETRY_BOX.format(calculation=calculation)))
+        assert system.kpoints.nk == 16, calculation
+
+    zero = _LOW_SYMMETRY_BOX.format(calculation="bands").replace(" 1.0\n", " 0.0\n")
+    assert build_system(parse_pw_input(zero)).kpoints.nk == 6

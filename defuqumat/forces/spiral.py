@@ -91,6 +91,16 @@ k axis at all. The sums the frozen energy needs beyond those -- the density,
 held in host memory by ``memory_mode = 'memory'`` never crosses to the device
 whole.
 
+**DFT+U is carried, through the Hubbard projectors on the shifted spheres.**
+A norm-conserving spiral's ``wfcU`` is built at ``k + q/2`` for the up
+component and ``k - q/2`` for the down (I28), so the occupation matrix the
+frozen states measure moves with ``q`` exactly as ``vkb`` does, and
+``E_U[ns(q)]`` is one more term of the frozen energy. It is quadratic in ``ns``
+and ``ns`` is a sum over k, so the chunked route treats it as the augmented one
+treats ``becsum``: the energy is taken once at the whole ``ns`` and its
+gradient pulled back through each chunk's (audit 2026-11-20b #1, where it was
+missing and the gradient came back without it).
+
 **A magnetic field or a constrained moment is refused rather than corrected.**
 The field's own energy is deliberately outside the reported total
 (:mod:`defuqumat.scf.fields`), so the converged state minimises total *plus*
@@ -110,7 +120,11 @@ import numpy as np
 
 from defuqumat.basis.planewaves import PlaneWaveBasis
 from defuqumat.batching import k_chunks, resolve_k_batch
-from defuqumat.forces.energy import FrozenState, reject_single_band_side, state_from_result
+from defuqumat.forces.energy import (FrozenState, reject_potential_only,
+                                     reject_tensor_moment_constraint, state_from_result)
+from defuqumat.hubbard.energy import hubbard_energy
+from defuqumat.hubbard.occupations import occupation_matrix
+from defuqumat.hubbard.projectors import build_hubbard_projectors
 from defuqumat.pseudo.projectors import build_projector_core
 from defuqumat.scf.potential import total_charge
 from defuqumat.system.spiral import spiral_kcart
@@ -197,6 +211,11 @@ def spiral_energy(calculation, q_crystal, state: FrozenState):
     # ``<psi|S|psi>`` moves with ``q`` and its derivative is the spiral's
     # Pulay term. A norm-conserving dataset has ``S = 1`` and never reaches it.
     norm = jnp.sum(weights * state.eigenvalues * (_norms(psi) - 1.0))
+    # DFT+U, through ``wfcU`` rebuilt on the shifted spheres at this ``q``
+    # (``at_spiral_q``), which is where it carries ``q``.
+    hubbard = (hubbard_energy(moved.occupation_matrix(psi, weights),
+                              moved.hubbard_coefficients)
+               if moved.is_hubbard else 0.0)
 
     return (
         kinetic
@@ -208,6 +227,7 @@ def spiral_energy(calculation, q_crystal, state: FrozenState):
         # own; here so the identity against the SCF total holds.
         + potential.e_sawtooth
         + epaw
+        + hubbard
         - overlap
         + moved.ewald
         # Carried for the same reason the density is: a spiral does not move an
@@ -221,8 +241,13 @@ def spiral_energy(calculation, q_crystal, state: FrozenState):
 
 
 def q_dependent_energy(calculation, q_crystal, psi, weights, eigenvalues, rows,
-                       with_becsum: bool = False):
+                       with_becsum: bool = False, with_ns: bool = False):
     """The terms that carry ``q``, over a *subset* of the k-points.
+
+    ``with_ns`` returns, beside the energy, the chunk's raw occupation matrix at
+    ``q``, measured through Hubbard projectors built on the chunk's own shifted
+    spheres; it is the second output :func:`_chunked_energy_and_gradient` pulls
+    ``dE_U/dns`` back through on a DFT+U spiral.
 
     ``with_becsum`` also returns the chunk's raw ``becsum`` at ``q`` -- built
     from the same chunk projectors ``vkb(k +- q/2)`` the nonlocal term uses --
@@ -287,11 +312,59 @@ def q_dependent_energy(calculation, q_crystal, psi, weights, eigenvalues, rows,
         eigenvalues, m,
     )
     energy = _kinetic_energy(psi, state_kinetic, weights) + nonlocal_ - overlap
+    if with_ns:
+        return energy, _chunk_occupation_matrix(
+            calculation, sub, kcart, psi, weights)
     if not with_becsum:
         return energy
     # ``_noncollinear_becsum``'s own contraction, on this chunk's projectors.
     # The spin-orbit coefficients it applies carry no ``q``; only ``vkb`` does.
     return energy, calculation._noncollinear_becsum(psi, weights, projectors.vkb)
+
+
+def _chunk_occupation_matrix(calculation, sub, kcart, psi, weights):
+    """One chunk's raw ``ns`` at the traced ``kcart``, unsymmetrised.
+
+    The Hubbard projectors of the chunk's ``2 m`` rows, built on the selected
+    sub-basis exactly as :meth:`~defuqumat.scf.driver.Calculation.
+    _build_hubbard_projectors` builds the whole set, and spliced the same way:
+    the up half of row ``i`` beside the down half of row ``m + i``.
+    """
+    projectors = build_hubbard_projectors(
+        calculation.hubbard, calculation.pseudos, calculation.system.structure,
+        calculation.system.cell, calculation.basis.smooth, sub,
+        calculation.basis_kpoints, calculation._spinor_overlap, kcart,
+    )
+    m = kcart.shape[0] // 2
+    npwx = sub.indices.shape[1]
+    wfcU = jnp.concatenate([projectors[:m, :npwx], projectors[m:, npwx:]], axis=1)
+    return occupation_matrix(
+        wfcU, psi, weights, calculation._hubbard_columns,
+        calculation._hubbard_mask, calculation.k_batch,
+    )
+
+
+def _hubbard_cotangent(calculation, state: FrozenState, k_batch):
+    """``(E_U, dE_U/dns)`` at the whole raw ``ns`` of the frozen state.
+
+    ``ns`` is accumulated ``k_batch`` k-points at a time through the
+    calculation's own ``wfcU``, which is the one at its own ``q``, and the
+    cotangent is taken through the symmetrisation the SCF applies, so that
+    pulling it back through each chunk's ``ns(q)`` gives the cross terms
+    between chunks that a per-chunk ``E_U`` would drop.
+    """
+    nk = calculation.system.kpoints.nk
+    ns = None
+    for rows, live in k_chunks(nk, k_batch):
+        psi, weights, _ = _chunk_arguments(state, rows, live)
+        part = calculation.occupation_matrix(psi, weights, rows=rows,
+                                             symmetrize=False)
+        ns = part if ns is None else ns + part
+    energy, back = jax.vjp(
+        lambda ns: hubbard_energy(calculation.finish_occupation_matrix(ns),
+                                  calculation.hubbard_coefficients), ns)
+    (cotangent,) = back(jnp.ones_like(energy))
+    return energy, cotangent
 
 
 def q_independent_energy(calculation, state: FrozenState,
@@ -401,20 +474,39 @@ def _chunked_energy_and_gradient(calculation, q, state: FrozenState, k_batch: in
     the energy or the gradient (both are linear in ``weights``).
     """
     nk = calculation.system.kpoints.nk
-    fn = _chunk_cache(calculation).get("value_and_grad")
-    if fn is None:
-        fn = jax.jit(jax.value_and_grad(
-            lambda q, psi, weights, eigenvalues, rows:
-                q_dependent_energy(calculation, q, psi, weights, eigenvalues, rows)
-        ))
-        _chunk_cache(calculation)["value_and_grad"] = fn
+    if calculation.is_hubbard:
+        # ``E_U`` is quadratic in ``ns``, a sum over k: its value is taken at
+        # the whole ``ns`` and its gradient pulled back through each chunk's,
+        # as :func:`_split_energy_and_gradient` does with ``becsum``.
+        energy, cotangent = _hubbard_cotangent(calculation, state, k_batch)
+        fn = _chunk_cache(calculation).get("pull_ns")
+        if fn is None:
+            def pull(q, psi, weights, eigenvalues, rows, cotangent):
+                (value, _), back = jax.vjp(
+                    lambda q: q_dependent_energy(calculation, q, psi, weights,
+                                                 eigenvalues, rows, with_ns=True),
+                    q,
+                )
+                (slope,) = back((jnp.ones_like(value), cotangent))
+                return value, slope
 
-    energy = 0.0
+            fn = _chunk_cache(calculation)["pull_ns"] = jax.jit(pull)
+        call = partial(fn, cotangent=cotangent)
+    else:
+        energy = 0.0
+        call = _chunk_cache(calculation).get("value_and_grad")
+        if call is None:
+            call = jax.jit(jax.value_and_grad(
+                lambda q, psi, weights, eigenvalues, rows:
+                    q_dependent_energy(calculation, q, psi, weights, eigenvalues, rows)
+            ))
+            _chunk_cache(calculation)["value_and_grad"] = call
+
     gradient = jnp.zeros((3,), dtype=float)
     for padded, live in k_chunks(nk, k_batch):
         psi, weights, eigenvalues = _chunk_arguments(state, padded, live)
         rows = jnp.asarray(np.concatenate([padded, nk + padded]))
-        value, slope = fn(q, psi, weights, eigenvalues, rows)
+        value, slope = call(q, psi, weights, eigenvalues, rows)
         energy += value
         gradient = gradient + slope
     if getattr(calculation, "noncollinear_gga", "kubler") == "grad_m":
@@ -585,9 +677,14 @@ def _energy_and_gradient(calculation):
 def _require_a_differentiable_spiral(calculation) -> None:
     """The things that make ``dE/dq`` at frozen state not be the answer.
 
-    A band side in single precision is refused first
-    (:func:`~defuqumat.forces.energy.reject_single_band_side`), since this
-    gradient does not pass through the gate the other derivatives share.
+    The gate every consumer of :func:`~defuqumat.forces.energy.energy_at`
+    shares is called first, since this gradient differentiates its own frozen
+    energy and does not pass through it
+    (:func:`~defuqumat.forces.energy.reject_potential_only`): a band side in
+    single precision, a potential-only meta-GGA (TB09, BJ06), which has no
+    energy for the frozen state to be stationary in, and ``nosource``, which
+    changes the potential and not the energy (audit 2026-11-20b #13; the
+    meta-GGA was the one missing).
 
     An ultrasoft or PAW dataset **was** the third and is no longer (P96): the
     displaced table is rebuilt with a traced ``q`` inside
@@ -600,7 +697,8 @@ def _require_a_differentiable_spiral(calculation) -> None:
             "dE/dq needs a spin spiral: set spiral_q, which is the coordinate "
             "being differentiated with respect to"
         )
-    reject_single_band_side(calculation)
+    reject_potential_only(calculation)
+    reject_tensor_moment_constraint(calculation, "dE/dq")
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "dE/dq with a magnetic field or a constrained moment is not "

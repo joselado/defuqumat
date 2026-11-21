@@ -169,9 +169,42 @@ of the penalty is not part of the reported total energy.
     combined with time reversal, because these exchange the two spin channels. A
     spinor run (`noncolin = .true.`) does not need it.
 
+    A spinor run without magnetization differs from `pw.x` in one place. Its
+    k-points are reduced with time reversal, so $k$ and $-k$ count as one point.
+    We average the occupation matrix with its time-reversed image, and `pw.x`
+    does not. In a crystal with inversion this changes nothing: for fcc and hcp
+    Pt the matrix is the same as without the average to 5e-15. In a crystal
+    without inversion (wurtzite,
+    zincblende) `pw.x` keeps a part of the matrix that is odd under time
+    reversal, and its value depends on which point of each $k$, $-k$ pair the
+    reduction kept. We remove it. This holds for an automatic grid reduced by
+    symmetry, and also for a `K_POINTS tpiba` or `crystal` list, because `pw.x`
+    also reads such a list as reduced with time reversal. The only list that keeps
+    the average over the space group alone is a whole grid written out, with equal
+    weights on every point of an $n_1 \times n_2 \times n_3$ mesh, since there
+    $k$ and $-k$ are both in the list. A magnetic run, `noinv = .true.` and a
+    fixed tensor moment keep the average over the space group only.
+
     A fixed tensor moment needs a spinor run, because in a collinear run it
     reduces to the fixed spin moment that `constrained_magnetization` already
     gives.
+
+    With a fixed tensor moment the forces, the stress and the gradient in the
+    spiral wavevector give an error. The energy of the penalty is not in the
+    total energy, so the converged state is not a stationary point of the
+    energy we differentiate, and the force would miss the derivative of the
+    penalty. On the BN layer of `tests/data/qe/bn-ldau-noncol.in` with the card
+    above, at `ecutwfc = 25` and a penalty of 20 Ry, this missing force on N is
+    $4.9\times10^{-3}$ Ry/bohr. A
+    `tstress = .true.` in the input then gives a warning, and `scf.stress` is
+    `None`. A constrained moment (`constrained_magnetization`) gives the same
+    error for the same reason.
+
+    `starting_ns_eigenvalue` gives an error with `scf_solver='newton-krylov'`.
+    `pw.x` applies it once, to the occupation matrix of the first iteration of
+    the mixing loop, and the Newton solver has no such iteration. You can run the
+    request with the mixing loop and give that result to the Newton solver with
+    `starting_from`, or give the occupation matrix you want with `starting_ns`.
 
     `hubbard_slater = 'yukawa'` needs a PAW dataset. A norm-conserving or
     ultrasoft orbital would give a far too small $F^0$, so it gives an error.

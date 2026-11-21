@@ -661,26 +661,41 @@ def _last_final_block(text: str) -> str | None:
 
 
 def _parse_final_cell(text: str) -> np.ndarray | None:
-    """``CELL_PARAMETERS (alat= ...)`` from the final-coordinates block, in bohr.
+    """``CELL_PARAMETERS`` from the final-coordinates block, in bohr.
 
-    The ``alat`` in the header is the run's own and is what the three rows are
-    in units of; it is *not* recomputed from the relaxed cell, which is why a
-    ``vc-relax``'s printed ``CELL_PARAMETERS`` can have rows of length far from
-    one.
+    ``output_tau`` prints the cell in the units of the input's own card
+    (``cell_units``): ``(alat= ...)``, ``(bohr)`` or ``(angstrom)``. With
+    ``alat`` the number in the header is the run's own and is what the three
+    rows are in units of; it is *not* recomputed from the relaxed cell, which
+    is why a ``vc-relax``'s printed ``CELL_PARAMETERS`` can have rows of length
+    far from one. A final block that prints a cell this cannot read raises,
+    since a ``None`` here sends crystal positions to the starting cell
+    (audit 2026-11-20c #11). A fixed-cell run prints no cell and gives ``None``.
     """
     block = _last_final_block(text)
     if block is None:
         return None
     match = re.search(
-        r"CELL_PARAMETERS\s*\(\s*alat\s*=\s*(" + _FLOAT + r")\s*\)\s*\n"
+        r"CELL_PARAMETERS\s*\(\s*(alat\s*=\s*(" + _FLOAT + r")|bohr|angstrom)\s*\)\s*\n"
         r"((?:\s*" + _FLOAT + r"\s+" + _FLOAT + r"\s+" + _FLOAT + r"\s*\n){3})",
         block,
     )
     if match is None:
+        if "CELL_PARAMETERS" in block:
+            raise ValueError(
+                "the final coordinates print a CELL_PARAMETERS block that is "
+                "not three rows in (alat= ...), (bohr) or (angstrom), the "
+                "units output_tau writes; the relaxed cell cannot be read")
         return None
-    alat = float(match.group(1))
-    rows = [_floats(line)[:3] for line in match.group(2).strip().splitlines()]
-    return np.array(rows, dtype=float) * alat
+    units = match.group(1).lower()
+    if units == "bohr":
+        scale = 1.0
+    elif units == "angstrom":
+        scale = ANGSTROM_TO_BOHR
+    else:
+        scale = float(match.group(2))
+    rows = [_floats(line)[:3] for line in match.group(3).strip().splitlines()]
+    return np.array(rows, dtype=float) * scale
 
 
 def _parse_final_positions(text: str) -> np.ndarray | None:
@@ -700,9 +715,15 @@ def _parse_final_positions(text: str) -> np.ndarray | None:
         return None
     units = match.group(1).lower()
     block = match
+    # **Split the row, do not search it for floats.** ``output_tau`` writes
+    # ``(A6, 3X, 3F20.10)``, a label then three coordinates (then the
+    # ``if_pos`` flags when any is zero), and a label may hold a digit:
+    # ``Ti1`` or ``Fe2`` for two sublattices of one element. A search for
+    # floats reads that digit as the first coordinate (audit 2026-11-20c #12).
     positions = np.array(
         [
-            _floats(line)[:3]
+            [float(value.replace("D", "E").replace("d", "e"))
+             for value in line.split()[1:4]]
             for line in block.group(2).strip().splitlines()
             if line.strip()
         ],
@@ -721,7 +742,9 @@ def _parse_final_positions(text: str) -> np.ndarray | None:
         # ``vc-relax`` the starting cell is the wrong one by however much the
         # relaxation moved it, and the error is a plausible geometry rather
         # than a shape mismatch. QE prints ``CELL_PARAMETERS`` in the same
-        # block precisely because the coordinates are relative to it.
+        # block precisely because the coordinates are relative to it. The
+        # starting axes are used only when the block prints no cell, which is
+        # a fixed-cell run; a cell it prints and this cannot read has raised.
         final = _parse_final_cell(text)
         at = final / alat if final is not None else _parse_axes(text, "crystal axes", "a")
         return positions @ (at * alat)

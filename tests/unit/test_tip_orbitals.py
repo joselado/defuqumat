@@ -302,6 +302,86 @@ def test_the_map_over_the_tip_plane_is_the_momentum_trace(spec):
     assert integral == pytest.approx(trace, rel=1e-11)
 
 
+@pytest.mark.parametrize("npol, spin", [(1, None), (2, "z")], ids=["scalar", "spinor"])
+def test_the_momentum_route_builds_basis_grams_once_for_every_energy(monkeypatch, npol, spin):
+    """Audit 2026-11-20 #7: the tip plane's Gram matrix of a channel at an
+    energy is ``sum_bb' C_b^* C_b' G_bb'``, with the basis Grams built once.
+
+    :func:`_assemble_momentum` on synthetic states against the direct form,
+    one :func:`folded_gram` of the combined coefficients per energy and per
+    channel and :func:`momentum_weights` on it, for a ``p`` tip and a hybrid
+    channel and a complex one, five energies, a spinor with a spin-selective
+    substrate too; and
+    the number of :func:`folded_gram` calls does not grow with the energies.
+    Before, it was one per energy and channel and k-point, and the Grams of
+    every energy were held at once.
+    """
+    import defuqumat.workflows.transport as transport
+    from defuqumat.workflows.transport import _assemble_momentum, _substrate_acceptance
+
+    cell = HEXAGONAL
+    kpoints = np.array([[0.0, 0.0, 0.0], [1.0 / 3.0, 1.0 / 3.0, 0.0], [0.2, -0.1, 0.0]])
+    geometry, wavefunctions = _geometry(cell, kpoints, gmax=2.4, seed=31, npol=npol)
+    nk, nbnd = wavefunctions.shape[1:3]
+    eigenvalues = np.stack([np.linspace(-0.05, 0.05, nbnd) + 0.01 * ik
+                            for ik in range(nk)])[None]
+    planewaves = types.SimpleNamespace(miller=lambda _smooth: geometry.miller,
+                                       mask=geometry.mask)
+    monkeypatch.setattr(transport, "build_basis", lambda _system: types.SimpleNamespace(
+        planewaves=planewaves, smooth=None))
+    kset = types.SimpleNamespace(weights=geometry.kweights,
+                                 crystal=lambda _cell: kpoints)
+    calculation = types.SimpleNamespace(
+        system=types.SimpleNamespace(cell=cell, kpoints=kset), noncolin=npol == 2)
+    calls = []
+    original = transport.folded_gram
+    monkeypatch.setattr(transport, "folded_gram",
+                        lambda *a, **k: calls.append(1) or original(*a, **k))
+    exit_height, height = 0.2, 0.71
+    scale = surface_area(cell, 2) / cell.volume
+    projector, _ = _substrate_acceptance(spin, 0.7, npol, 1)
+
+    for spec in ("p", [{"s": 1.0, "pz": -0.6}, "px"], {"px": 1.0, "py": 0.5j}):
+        counts = []
+        for energies in (np.array([0.0]), np.linspace(-0.04, 0.03, 5)):
+            tip = _tip(spec, cell, kappa=0.8 + 0.1 * energies)
+            calls.clear()
+            columns, _ = _assemble_momentum(
+                calculation, wavefunctions, eigenvalues, exit_height=exit_height,
+                heights=[height], exit_axis=2, energies=energies, broadening=0.05,
+                spin=spin, polarization=0.7, method="spectral", smearing="gaussian",
+                degeneracy_tol=1e-6, tip=tip)
+            counts.append(len(calls))
+        assert counts[0] == counts[1], counts
+
+        exit_grams = np.stack([
+            exit_overlap(wavefunctions[0, ik], geometry.miller[ik], exit_height, 2,
+                         cell, npol=npol, projector=projector) for ik in range(nk)])
+        reference = {name: np.zeros((len(energies), nk))
+                     for name in ("weight", "tersoff_hamann", "incoherent")}
+        for ie, energy in enumerate(energies):
+            weights = np.real(amplitude_weights(eigenvalues[0], float(energy), 0.05))
+            for ic in range(tip.nchannels):
+                grams = []
+                for ik in range(nk):
+                    vectors = tip_vectors(geometry.miller[ik], kpoints[ik], cell, tip.frame)
+                    factor = sum(tip.coefficients[ie, ic, ib] * multiplier(name, vectors)
+                                 for ib, name in enumerate(tip.basis))
+                    block = (wavefunctions[0, ik].reshape(nbnd, npol, -1)
+                             * factor[None, None]).reshape(nbnd, -1)
+                    folded, _ = fold_onto_plane(block, geometry.miller[ik], height, 2,
+                                                npol=npol)
+                    grams.append(original(folded, scale, npol=npol, projector=projector))
+                here = momentum_weights(exit_grams, np.stack(grams), geometry.kweights,
+                                        weights, eigenvalues=eigenvalues[0], tol=1e-6)
+                for name in reference:
+                    reference[name][ie] += here[name]
+        for name, value in reference.items():
+            peak = np.abs(value).max()
+            assert peak > 0.0
+            assert np.abs(columns[name][0] - value).max() < 1e-12 * peak, name
+
+
 # --------------------------------------------------------------------------
 # V4: the volume limit is the kinetic energy density
 # --------------------------------------------------------------------------
@@ -537,10 +617,96 @@ def test_an_invariant_tip_is_not_turned_and_a_hybrid_is():
     hybrid = _turned_tips(_tip({"s": 1.0, "pz": -0.5}, cell),
                           [np.eye(3), mirror], cell, 4)
     assert hybrid is not None and hybrid.per_point
-    flipped = dict(zip(hybrid.basis, hybrid.coefficients[0, 4, 0]))
-    kept = dict(zip(hybrid.basis, hybrid.coefficients[0, 0, 0]))
+    # one set per operation, not per point (audit 2026-11-20 #34): the points
+    # are operation-major, four to an operation, so point 4 is the mirror's
+    assert hybrid.coefficients.shape[:2] == (1, 2) and hybrid.points_per_image == 4
+    flipped = dict(zip(hybrid.basis, hybrid.at_points(0, 0, [4])[0]))
+    kept = dict(zip(hybrid.basis, hybrid.at_points(0, 0, [3])[0]))
     assert flipped["pz"] == pytest.approx(-kept["pz"])
     assert flipped["s"] == pytest.approx(kept["s"])
+
+
+def _star(cell, kcrystal, rotations, nbnd, seed, gmax=3.0):
+    """A wedge of one k-point and the whole star it stands for.
+
+    ``rotations`` are cartesian (columns) and keep the stacking axis. The
+    states of the image ``R k`` are those of ``k`` turned, ``psi_Rk(r) =
+    psi_k(R^-1 r)``, which puts the coefficient of ``G`` at ``R G`` in the same
+    Gamma-centred ball. Returns ``(wedge, whole, eigenvalues, group)``: two
+    ``(geometry, wavefunctions)`` pairs, the wedge carrying the weight of the
+    whole star, and the group as :func:`_completed_on_a_wedge` reads it, the
+    crystal rows ``M = A R^T A^-1``.
+    """
+    miller = _ball(cell, gmax)
+    lookup = {tuple(h): i for i, h in enumerate(miller)}
+    bg, at = np.asarray(cell.bg), np.asarray(cell.at)
+    states = _orthonormal(miller.shape[0], nbnd, seed)            # (nbnd, npw)
+    kpoints, whole = [], []
+    for rotation in rotations:
+        turn = bg @ rotation.T @ np.linalg.inv(bg)                # on crystal rows
+        moved = np.rint(miller @ turn).astype(int)
+        order = np.array([lookup[tuple(h)] for h in moved])
+        image = np.zeros_like(states)
+        image[:, order] = states
+        kpoints.append(np.asarray(kcrystal) @ turn)
+        whole.append(image)
+    nk = len(rotations)
+    star = _geometry(cell, kpoints, nbnd=nbnd, gmax=gmax, states=np.stack(whole))
+    geometry, wavefunctions = _geometry(cell, [kcrystal], nbnd=nbnd, gmax=gmax,
+                                        states=states[None])
+    geometry = TransportGeometry(
+        miller=geometry.miller, mask=geometry.mask, kcrystal=geometry.kcrystal,
+        kweights=np.array([2.0]), cell=cell, npol=1)
+    assert np.allclose(star[0].kweights.sum(), 2.0) and nk == star[0].kweights.size
+    group = types.SimpleNamespace(
+        crystal=np.stack([at @ r.T @ np.linalg.inv(at) for r in rotations]),
+        translations=np.zeros((nk, 3)), antiunitary=np.zeros(nk, dtype=bool))
+    return (geometry, wavefunctions), star, group
+
+
+@pytest.mark.parametrize("spec", ["pxy", "p", [{"s": 1.0, "px": 0.7}, "py"]], ids=str)
+def test_the_channel_maps_on_a_wedge_are_those_of_the_whole_star(spec):
+    """Audit 2026-11-20 #4 and #5: each channel's map, not only their sum.
+
+    A general k-point of the hexagonal cell and its six images under C6, with
+    the states of each image the turned states of the first. The map completed
+    from the one point is the map of the six, channel by channel. Before the
+    fix the ``pxy`` and ``p`` tips, whose sum over channels is invariant, were
+    not turned, and each channel map came back averaged over the group; the
+    total, which is checked first, was right then too.
+    """
+    from defuqumat.workflows.transport import _completed_on_a_wedge
+
+    cell = HEXAGONAL
+    rotations = []
+    for n in range(6):
+        angle = n * np.pi / 3.0
+        rotations.append(np.array([[np.cos(angle), -np.sin(angle), 0.0],
+                                   [np.sin(angle), np.cos(angle), 0.0],
+                                   [0.0, 0.0, 1.0]]))
+    wedge, star, group = _star(cell, np.array([0.17, 0.06, 0.0]), rotations,
+                               nbnd=5, seed=21)
+    eigenvalues = np.linspace(-0.05, 0.05, 5)
+    points = np.r_[_plane_points(4, 0.7), [[0.31, 0.12, 0.7], [0.55, 0.83, 0.7]]]
+    tip = _tip(spec, cell, kappa=(0.7, 0.6), channel_maps=True)
+    settings = dict(exit_axis=2, energies=np.array([0.0, 0.02]), broadening=0.05,
+                    spin=None, polarization=1.0, tip_spin=None,
+                    tip_polarization=1.0, incoherent=False, exit_region="plane",
+                    method="spectral", smearing="gaussian", tip=tip)
+    right, _ = _assemble(star[0], star[1], np.broadcast_to(eigenvalues, (1, 6, 5)),
+                         points, exit_height=0.2, **settings)
+    got, _ = _completed_on_a_wedge(
+        group, wedge[0], wedge[1], eigenvalues[None, None], points, 0.2, 2,
+        _fake_system([[0, 0, 0.5]], cell), (), settings)
+    scale = np.abs(right["coherent"]).max()
+    assert scale > 0.0
+    assert np.abs(got["coherent"] - right["coherent"]).max() < 1e-12 * scale
+    assert got["channels"].shape == right["channels"].shape
+    assert np.abs(got["channels"] - right["channels"]).max() < 1e-12 * scale
+    # and the test can fail: the channels of the star are not the group average
+    averaged = np.broadcast_to(right["channels"].mean(axis=1, keepdims=True),
+                               right["channels"].shape)
+    assert np.abs(averaged - right["channels"]).max() > 1e-2 * scale
 
 
 def _fake_system(positions, cell, nspin=1, **extra):
@@ -684,6 +850,33 @@ def test_a_matching_plane_outside_the_gap_is_refused():
     assert tip is not None and tip.orbital.is_point
 
 
+def test_a_matching_plane_inside_an_augmentation_sphere_is_refused():
+    """The rule of the exit and tip planes, now on the matching plane (audit
+    2026-11-20 #12): folded there, a state is the pseudo-wavefunction.
+
+    An ultrasoft-like dataset reaching 2.4 bohr, the atom at 0.5 of a 13 bohr
+    cell and the tip at 0.7: a plane 1.3 bohr above the atom is refused, one
+    2.47 bohr above it is not, and without an augmented dataset (the
+    norm-conserving case of every recorded run) 1.3 bohr is kept.
+    """
+    cell = SQUARE
+    result = types.SimpleNamespace(potential=np.zeros((1, 4, 4, 26)))
+    plain = _fake_system([[0, 0, 0.5]], cell)
+    args = (result, 2, 0.3, np.array([[0.0, 0.0, 0.7]]), np.array([-0.5]), None,
+            None, None, False)
+    r = np.linspace(0.0, 5.0, 501)
+    ultrasoft = types.SimpleNamespace(
+        augmentation=object(), paw=None, r=r,
+        projectors=[types.SimpleNamespace(cutoff_index=240)])     # r = 2.4
+    with pytest.raises(NotImplementedError, match="the matching plane"):
+        _tip_assembly("pz", plain, *args, match_height=0.6, pseudos=(ultrasoft,))
+    tip, _ = _tip_assembly("pz", plain, *args, match_height=0.69,
+                           pseudos=(ultrasoft,))
+    assert tip.match["height"] == 0.69
+    tip, _ = _tip_assembly("pz", plain, *args, match_height=0.6, pseudos=())
+    assert tip.match is not None
+
+
 # --------------------------------------------------------------------------
 # the presets
 # --------------------------------------------------------------------------
@@ -794,6 +987,29 @@ def test_the_presets_are_single_families_with_the_weight_of_their_orbital():
     o2p = [bardeen_weight(PSEUDO_DIR / "O.pbe-n-rrkjus_psl.1.0.0.UPF", "2P", 0.57, c)
            for c in (12.0, 16.0)]
     assert o2p[0] == pytest.approx(o2p[1], rel=5e-3)
+
+
+def test_a_label_two_orbitals_share_is_refused_and_a_single_one_is_kept():
+    """A fully relativistic file has one orbital per ``j`` under one label.
+
+    ``Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF`` has two ``6P`` (-0.4085 and -0.2726
+    Ry) and two ``5D``: a tip built from the first would carry the weight of
+    one ``j`` alone (audit 2026-11-20 #43). Its ``6S`` is one orbital and is
+    kept, and so are the presets, which are scalar-relativistic.
+    """
+    from defuqumat.transport.tip_presets import (
+        PRESETS, PSEUDO_DIR, bardeen_weight, from_upf, orbital_eigenvalue, preset)
+
+    bismuth = PSEUDO_DIR / "Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF"
+    with pytest.raises(NotImplementedError, match="spinor tip channel"):
+        from_upf(bismuth, {"pz": ("6P", 1.0)})
+    with pytest.raises(NotImplementedError, match="2 orbitals labelled '5D'"):
+        bardeen_weight(bismuth, "5D", 0.6)
+    with pytest.raises(NotImplementedError, match="fully relativistic"):
+        orbital_eigenvalue(bismuth, "6P")
+    assert from_upf(bismuth, {"s": ("6S", 1.0)}).names == ("s",)
+    for name in PRESETS:
+        assert preset(name).channels
 
 
 def test_the_wkb_continuation_is_the_flat_one_in_a_flat_vacuum_and_integrates_a_slope():

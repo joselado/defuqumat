@@ -212,7 +212,18 @@ def moment_matrices(l: int, real_harmonics: bool = True) -> np.ndarray:
     the ones that do not.
 
     Laid out the way :mod:`defuqumat.hubbard.occupations` lays out ``ns`` -- the
-    two spin indices leading -- so a decomposition is one contraction.
+    two spin indices leading -- so a decomposition is one contraction. **That
+    layout is rho^T, and the basis is returned in it**: ``occupation_matrix``
+    puts the conjugated projection on the first index, so
+    ``ns[s, t, a, c] = rho[(c, t), (a, s)]``, while Elk's ``dmatmt`` is rho
+    itself and ``dmtotm3`` takes ``w = Tr(Gamma rho)``. The array returned here
+    is therefore ``conj(Gamma)`` = ``Gamma^T`` of the operator ``Gamma``, which
+    makes ``sum conj(basis) ns`` equal to Elk's ``Tr(Gamma rho)``, and makes
+    :func:`compose` return an ``ns``, not a rho. Until audit 2026-11-20 #8 the
+    operator itself was returned and every contraction read ``Tr(Gamma^T rho)``:
+    on the filled ``j = 3/2`` quartet of a ``p`` shell, ``Tr(L.S rho)`` = 2 came
+    out as -2/3, and ``m_y`` with the opposite sign. Anything real-symmetric in
+    the real-harmonic x spin basis (the charge, ``m_x``, ``m_z``) never saw it.
 
     Built as ``tm3todm`` builds it: couple ``(k, p) -> r`` with a 3-j symbol,
     take the Kronecker product of the orbital and spin matrices, and split the
@@ -251,7 +262,9 @@ def moment_matrices(l: int, real_harmonics: bool = True) -> np.ndarray:
         u = rot_ylm(LMAXX)
         a = u[LMAXX - l:LMAXX + l + 1, :width]
         out = np.einsum("ba,nstbc,cd->nstad", a, out, a.conj())
-    return out
+    # The operator ``Gamma`` is ``out``; ``ns`` is rho^T, so the basis it is
+    # contracted with is ``Gamma^T`` = ``conj(Gamma)`` (``Gamma`` is Hermitian).
+    return np.conj(out)
 
 
 def decompose(ns: np.ndarray, l: int) -> np.ndarray:
@@ -259,7 +272,9 @@ def decompose(ns: np.ndarray, l: int) -> np.ndarray:
 
     ``ns`` is ``(4, ldim, ldim)`` -- the spin pairs packed as ``2 s1 + s2``, the
     layout :mod:`defuqumat.hubbard.occupations` produces. The basis is orthonormal
-    under ``Tr(Gamma N)``, so this is a projection.
+    under ``Tr(Gamma N)``, so this is a projection, and since the basis is
+    stored in that layout (:func:`moment_matrices`) the result is Elk's
+    ``dmtotm3``, ``Tr(Gamma rho)`` of the density matrix ``rho = ns^T``.
     """
     width = 2 * l + 1
     blocks = np.asarray(ns).reshape(2, 2, width, width)[:, :, :width, :width]

@@ -69,6 +69,7 @@ transcribed halves (``dvqpsi_us``, ``compute_dvloc``, ``incdrhoscf``,
 from __future__ import annotations
 
 import copy
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -81,6 +82,7 @@ from defuqumat.response.sternheimer import (
 )
 from defuqumat.scf.occupations import w0gauss, wgauss
 from defuqumat.scf.streaming import is_host_store
+from defuqumat.solvers.davidson import MAX_ITERATIONS
 from defuqumat.system.cell import Cell
 from defuqumat.system.kpoints import KPoints
 
@@ -166,13 +168,49 @@ def states_at_k_plus_q(calculation, v_scf, q_cart, nbnd, ethr: float = 1e-13,
         calculation.system.kpoints, q_cart, calculation.system.cell
     ))
     hamiltonians = moved.hamiltonian(v_scf)
+    # The step counts are read on both routes (audit 2026-11-20b #23): the
+    # solve starts from random vectors at the response's tight ``ethr`` and has
+    # no later iteration, so a band cut off at the budget would otherwise reach
+    # ``P_c^+`` and the Sternheimer solve at ``q`` as if solved.
     if stream:
         from defuqumat.scf.streaming import stream_states
 
-        eigenvalues, wavefunctions = stream_states(moved, hamiltonians, nbnd, ethr)[:2]
+        eigenvalues, wavefunctions, steps, notcnv = stream_states(
+            moved, hamiltonians, nbnd, ethr)
     else:
-        eigenvalues, wavefunctions = moved.diagonalize(hamiltonians, nbnd, None, ethr)
+        eigenvalues, wavefunctions, steps, notcnv = moved.diagonalize(
+            hamiltonians, nbnd, None, ethr, return_steps=True)
+    say_what_did_not_settle_at_k_plus_q(steps, notcnv, ethr, nbnd)
     return moved, hamiltonians, np.asarray(eigenvalues), wavefunctions
+
+
+def say_what_did_not_settle_at_k_plus_q(steps, notcnv, ethr, nbnd) -> None:
+    """Warn when the solve at ``k + q`` left bands unsettled.
+
+    The ``k + q`` states are the unperturbed states the projector ``P_c^+`` and
+    the preconditioner of the Sternheimer solve at ``q`` are built from, and the
+    solve has no SCF around it to correct a band left short. ``pw.x`` prints
+    ``c_bands: N eigenvalues not converged`` in the same case
+    (``c_bands.f90:326-328``). On silicon at ``ethr = 1e-13`` every k-point settles
+    in 18 to 36 steps (2x2x2 and 3x3x3 meshes, 4 and 8 bands, three ``q``), so
+    the budget is reached only by a solve that is in trouble.
+    """
+    unsettled = np.asarray(notcnv)
+    if not unsettled.size or not (unsettled > 0).any():
+        return
+    named = np.unique(np.argwhere(unsettled > 0)[:, -1]).tolist()
+    more = " ..." if len(named) > 8 else ""
+    warnings.warn(
+        f"the solve at k + q did not converge at {len(named)} of "
+        f"{unsettled.shape[-1]} k-points (k-point indices {named[:8]}{more}): up "
+        f"to {int(unsettled.max())} of {nbnd} bands are unsettled and the worst "
+        f"k-point took {int(np.asarray(steps).max())} Davidson steps (the "
+        f"default budget is {MAX_ITERATIONS}), at ethr = {float(ethr):.1e}. "
+        "These are the unperturbed states the projector on the empty bands and "
+        "the Sternheimer solve at q are built from, and nothing later corrects "
+        "them",
+        stacklevel=3,
+    )
 
 
 def metallic_rows(eigenvalues, smearing) -> int:
@@ -1730,20 +1768,27 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "without a core, but the pair has not been checked. Use a dataset "
             "without PP_NLCC, or nspin = 1"
         )
-    from defuqumat.system.kpoints import is_reduced
+    from defuqumat.system.kpoints import covers_a_whole_grid, is_reduced
 
     # ``use_symmetry`` alone misses a P1 crystal: its group is the identity, so
     # use_symmetry is False, while time reversal still halves its grid, and the
     # partner -k of a kept k contributes conj(drho_{-q}) rather than drho_q
     # (audit 2026-11-15, ``phonon`` F1). The k-set is what carries the answer.
-    if calculation.use_symmetry or is_reduced(system.kpoints):
+    # ``is_reduced`` reads the recorded flag and the weight spread, and an
+    # explicit list has no flag, so a wedge written out with equal weights (the
+    # time-reversal half of a shifted grid) passed; such a list must be a whole
+    # grid (audit 2026-11-20c #27, the class of 2026-11-20 #11).
+    kpoints = system.kpoints
+    if calculation.use_symmetry or is_reduced(kpoints) or (
+            kpoints.grid is None and not covers_a_whole_grid(kpoints, system.cell)):
         raise NotImplementedError(
             "a phonon at q != 0 needs the whole k-grid: the response has to be "
             "symmetrised over the small group of q -- the operations with "
             "S q = q + G -- which is not the crystal's group and is not "
             "written here. Run with nosym = .true. and noinv = .true. on an "
             "unshifted grid, which is the grid that is closed under the point "
-            "group (see si-epsilon-unshifted-nosym.in)"
+            "group (see si-epsilon-unshifted-nosym.in). An explicit K_POINTS "
+            "list must be a whole grid, every point at equal weight"
         )
     if getattr(calculation, "dispersion_sum", None) is not None:
         # dynmat0.f90 calls d2ionq_disp at the phonon's xq; the frozen Hessian

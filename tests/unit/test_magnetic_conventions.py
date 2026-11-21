@@ -297,3 +297,47 @@ def test_a_left_handed_cell_is_refused_for_an_orbital_field():
     with pytest.raises(ValueError, match="along a1 x a2") as refused:
         MagneticCell.build(right, -1, 40)
     assert "a3 reversed" not in str(refused.value)
+
+
+def test_a_left_handed_cell_is_refused_at_the_door_before_any_scf(monkeypatch):
+    """Every route refuses a left-handed cell in ``refuse_regime``, before its SCF (audit 2026-11-20 #28).
+
+    The test lived in ``MagneticCell.build`` alone, and route P builds the
+    zero-field cell without it, so ``run_magnetizability`` ran the whole flux-0
+    SCF and raised at flux 1; the ultracell route built the cell after its
+    zero-field diagonalisation; and the facade ran its ground-state SCF before
+    either. Here ``run_magnetic_scf`` at zero field raises the handedness error
+    and not the missing-density one behind it, and ``get_magnetizability``
+    raises before the facade's ground state is asked for. The right-handed
+    cell next to it passes the door.
+    """
+    from pathlib import Path
+
+    from defuqumat import Calculator
+    from defuqumat.magnetic.fold import run_magnetic_scf
+    from defuqumat.system.cell import Cell
+
+    a, c = 4.65, 20.0
+    right = np.array([[a, 0.0, 0.0], [-0.5 * a, 0.5 * np.sqrt(3.0) * a, 0.0], [0.0, 0.0, c]])
+    plain = dict(npol=1, nspin=1, spiral_q=None, hubbard=None, input_dft=None,
+                 kpoints=SimpleNamespace(gamma_only=False))
+    refuse_regime(SimpleNamespace(cell=Cell.from_vectors(right), **plain), (), "a test")
+    left = SimpleNamespace(cell=Cell.from_vectors(right[[1, 0, 2]]), **plain)
+    with pytest.raises(ValueError, match="left-handed"):
+        refuse_regime(left, (), "a test")
+    with pytest.raises(ValueError, match="left-handed"):
+        run_magnetic_scf(left, (), None, flux=(0, 1), kmesh=(1, 1, 1), nbnd=4)
+
+    def no_scf(self, quantity):
+        raise AssertionError(f"the ground-state SCF was reached for {quantity}")
+
+    monkeypatch.setattr(Calculator, "_ground_state", no_scf)
+    half = 5.43 / 2.0  # angstrom: fcc silicon with a1 and a2 swapped
+    fcc = np.array([[-half, 0.0, half], [0.0, half, half], [-half, half, 0.0]])
+    assert np.linalg.det(fcc) > 0.0
+    calc = Calculator.from_keywords(
+        lattice=fcc[[1, 0, 2]], atoms=[("Si", (0.0, 0.0, 0.0)), ("Si", (0.25, 0.25, 0.25))],
+        pseudos={"Si": "Si.pz-vbc.UPF"}, ecut=12.0, kmesh=(1, 1, 1), announce=False,
+        pseudo_dir=Path(__file__).parents[1] / "data" / "pseudo")
+    with pytest.raises(ValueError, match="left-handed"):
+        calc.get_magnetizability(kmesh=(1, 1, 1), nbnd=4)
