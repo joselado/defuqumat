@@ -48,6 +48,22 @@ was cancelled after 1 min 28 s: only `test_elastic_one_trace.py` (3 tests) and
 in 13 files, are not assigned to the branch or to master, and nothing was read against the
 code.** No job of this work is left in the queue.
 
+A first look by reading only, with `git log e22a1c5d..HEAD` (hints, not assignments):
+
+- No branch commit touches the strings `do not lie between`, `refused on a metal` or
+  `do not fill a whole number of bands`, nor `defuqumat/workflows/quantum_metric.py`,
+  `defuqumat/response/photocurrent.py` (the SHG guard) or `defuqumat/magnetic/ultracell_field.py`.
+  So the failures of `test_quantum_metric.py` and `test_shg.py` look like master's.
+- `defuqumat/workflows/transport.py` has five branch commits (`91907be5`, `0e392587`,
+  `9471a7ee`, `7cb77c01`, `db1e4e3f`); the missing warning of `test_transport.py` and
+  `test_ultracell_sts.py` can be theirs.
+- `defuqumat/workflows/landau_ultracell.py` is touched by `c19130e1` (round three #5, a `c=`
+  site read in angstrom); the lost hermiticity of `test_magnetic_ultracell_slow.py` can be its.
+- `defuqumat/response/chunked_phonon.py` is touched by `e36d4de7` (round two #12), which does
+  not change the `walked` field that `test_streamed_phonons.py` reads.
+- The branch edits two of the failing test files: `test_anisotropy.py` (`1915ce05`, #13) and
+  `test_scf_restart.py` (`89190753`, round two #22).
+
 What waits, in this order: the 14 slow failures (a control at master for the 13 files needs
 the user's word, since the user stopped both arrays; reading the code is free); the open
 choices of P183, one pick list at a time; the merge and the push; the removal of the
