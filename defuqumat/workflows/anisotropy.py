@@ -1248,10 +1248,10 @@ def _require_nosym_to_turn(system: System, own, turning_wedge: bool = False) -> 
     if turning:
         message += (
             ". The wedge of with_turning_moments() is taken at a turned "
-            "orientation by get_torque and get_orientation_torque on a "
-            "norm-conserving or ultrasoft dataset only, where it is measured "
-            "against nosym; a PAW dataset and the first-order term "
-            "(get_first_order_soc) are not"
+            "orientation by get_torque and get_orientation_torque only, "
+            "where it is measured against nosym on ultrasoft cobalt; a PAW "
+            "dataset and the first-order term (get_first_order_soc) keep "
+            "nosym"
         )
     raise ValueError(message)
 
@@ -1362,8 +1362,8 @@ def frozen_expectation(
     """
     _refuse_single_band_side(
         system, "the first-order spin-orbit term",
-        "the answer is an expectation value of about 1e-7 Ry, the size of its "
-        "round-off")
+        "the answer is an expectation value of about 1e-6 Ry with an "
+        "anisotropy of 1e-7, the size of its round-off")
     from defuqumat.forces.energy import _spinor_projector_energies
     from defuqumat.response.walk import store_rows
     from defuqumat.scf.potential import as_potential_components
