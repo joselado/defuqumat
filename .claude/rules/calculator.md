@@ -33,7 +33,9 @@ Three things about it bind anything added to it:
 - **Nothing mutates.** `with_positions`/`with_cell`/`with_spin` return a *new* calculator
   with an empty cache; the converged state crosses as a `starting_from` seed
   (`starting_state`), never as an answer. A cached result under a moved atom is the
-  `test_geometry_invalidation` defect one layer up.
+  `test_geometry_invalidation` defect one layer up. A derived calculator inherits its
+  parent's options except `checkpoint_dir` and `mixing_from` (`RUN_STATE_OPTIONS`, audit
+  2026-11-20c #24): a checkpoint is read only by the run that wrote it.
 - **The refusals pass through untouched**, and the implicit SCF announces itself. The
   cache is one slot keyed by the options that filled it, because it holds the
   wavefunctions.
