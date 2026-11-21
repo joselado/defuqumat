@@ -35,8 +35,12 @@ work was run; where they say "left" or "not run", this section wins.
 - `session/agent-reports.md` (untracked) has the three reports of 2026-11-21 at its end, and
   `session/scratch/r3f` and `r3g` the scripts of groups F and G.
 
-What waits for the user, in this order: the slow files; the open choices of P183, one pick
-list at a time; the merge and the push; whether `notes/audit-1120/` stays in the repository.
+Decided by the user on 2026-11-21, by pick list: the 99 slow files run on Triton (array job
+21740810 at `ceedcaf6`, logs `calculations/audit-1120/slow-21740810_<task>.out`, task n is
+line n+1 of `slow-files.txt`); the two rule commits stay; `notes/audit-1120/` stays.
+
+What waits, in this order: the reading of the slow array into P183; the open choices of
+P183, one pick list at a time; the merge and the push; the removal of the leftovers on Triton.
 
 # The checkpoint of the night of 2026-11-20 (history)
 

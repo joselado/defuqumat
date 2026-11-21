@@ -209,3 +209,8 @@ the reason, and what would change it.
   session's short model scripts running back to back, waited only for a python above 1 GB
   resident before each of its runs. Every run of the package was under the 5 GB cap, one at a
   time; the largest peak read was 2.9 GB.
+- **Three choices of the user, by pick list, at the end of 2026-11-21.** The 99 slow files
+  were submitted on Triton as one array ("Submit the array", job 21740810 at `ceedcaf6`,
+  which has the same `defuqumat/`, `tests/` and `tools/` as the head). The two commits of the
+  rule files stay ("Keep both": `b7e645d3`, `2ef8103b`). `notes/audit-1120/` stays in the
+  repository at the merge ("Keep it all").

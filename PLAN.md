@@ -31656,8 +31656,8 @@ hand at two runs is told apart (positions, cell, moments, field, spiral `q`, axi
 subdirectory per direction, `q` or field so that the multi-run workflows can restart (about
 40 lines); #23 (land both halves and mark the 14 bands as superseded, land the k-chunk half
 only, or measure the chain on a card first); #17 (the pair on a quiet machine at 4 and 8
-cells, then one TB09 cell). And for the whole branch: the merge and the push; whether
-`notes/audit-1120/` stays in the repository; and the commit of the rule files above.
+cells, then one TB09 cell). And for the whole branch: the merge and the push. Decided by the user on 2026-11-21:
+`notes/audit-1120/` stays in the repository, and the two commits of the rule files stay.
 
 **Slow files the changes reach, not run, for the user.** The union over the fix-log entries
 of the three rounds. In `tests/regression/`:
