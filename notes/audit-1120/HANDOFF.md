@@ -51,9 +51,12 @@ this work is left in the queue.
 each, group if needed". The arrays above had one file per task, which the rule forbids from
 now on.
 
-What waits, in this order: the open choices of P183, one pick list at a time; the merge and
-the push; the removal of the leftovers on Triton, which now include the worktree
-`apps/defuqumat-audit1120-base`.
+**Merged into master with `--no-ff` and pushed on 2026-11-21**, the user's pick ("Merge and
+push"), after the control.
+
+What waits: the open choices of P183, one pick list at a time; the removal of the leftovers
+on Triton, which now include the worktree `apps/defuqumat-audit1120-base`; `OPEN.md` Part
+XXXII item 11.
 
 # The checkpoint of the night of 2026-11-20 (history)
 

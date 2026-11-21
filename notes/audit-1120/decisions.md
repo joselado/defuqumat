@@ -219,3 +219,7 @@ the reason, and what would change it.
   master `e22a1c5d` (job 21742448), reading it as part of the slow run the user had picked. The
   user answered "Kill the slow array" and, asked about the control, "Cancel it too". My reading
   of this: a further slow run on Triton, the control included, is asked first.
+- **The control was then picked by the user ("1"), and the merge and the push too.** Job
+  21742528: the same 18 tests fail at master with the same numbers. The user's rule from that
+  moment: no job or array task under about 30 min on Triton, grouped if needed. Asked what to do
+  with the branch, the user picked "Merge and push".
