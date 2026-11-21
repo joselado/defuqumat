@@ -782,6 +782,33 @@ spinor. A card keeps the whole box: a loop of plane-sized kernels is launch-boun
 `DEFUQUMAT_PLANE_CHUNK` overrides; an SCF gives the same energy and eigenvalues to the last
 digit either way (`tests/unit/test_plane_chunk.py` pins `H psi` to 1e-13).
 
+**The default chunk is balanced over `n3` since 2026-11-20 (audit 2026-11-20b #8, `69c099c9`).**
+The byte budget alone left the last chunk mostly zero planes when it did not divide `n3`, and
+those went through both `xy` transforms: 34 planes for 24 on si8-1k. The default now keeps the
+budget's number of chunks and spreads `n3` over them, `ceil(n3 / ceil(n3 / budget))`, which is
+never more than the budget; an explicit chunk is taken as asked. It is bit-identical in
+`H psi`, the density and the SCF: si8-1k -63.17798906144861 Ry in 7 iterations at chunk 17 and
+at 12, si16-1k -126.35597121581998 Ry in 7 at 17 and at 15, with the same Davidson steps.
+Workstation (Core Ultra 5 225U), `taskset -c 0-3`, `OMP_NUM_THREADS=4`, `MKL_NUM_THREADS=1`,
+both arms in one process, interleaved, warm (two calls discarded per arm), median (quartiles):
+
+| case | before | after |
+|---|---|---|
+| `H psi`, 16 bands of si8-1k, chunk 17 against 12, 21 samples | 6.98 ms (6.77 to 7.23) | 5.72 ms (5.56 to 6.60) |
+| `H psi`, 32 bands of si16-1k, chunk 17 against 15, 21 samples | 22.08 ms (21.32 to 26.97) | 19.64 ms (19.28 to 20.83) |
+| `H psi`, 16 bands of si8-1k-ecut30, chunk 7 against 6, 21 samples | 21.12 ms (20.45 to 23.42) | 20.04 ms (18.60 to 22.75), inside the spread |
+| an SCF iteration of si8-1k, setup included, 7 samples | 57.7 ms (57.5 to 59.0) | 52.9 ms (52.7 to 53.5) |
+| an SCF iteration of si16-1k, setup included, 7 samples | 157.5 ms (157.0 to 159.0) | 151.9 ms (150.3 to 153.3) |
+
+These are internal pairs on four threads, not a pair against `pw.x`. **The CPU times recorded
+before this at the default chunk carried the padded planes on 13 of the 36 benchmark inputs
+and are not retimed**: si8-1k, si8-pbe-1k, si8-smeared-1k, si2-us-1k and si2-paw-1k (34 planes
+transformed, now 24), si8-1k-ecut30 (42, now 36), si16-1k (51, now 45), si32-1k (102, now 90),
+si-1k-ecut40 (36, now 32), si8-nc-1k (27, now 24), pt-so-1k (26, now 20), al-slab (136, now 72)
+and al-slab-v64 (204, now 180). The other 23 keep their chunk (si8-us-1k at 10 of 30, si64-1k
+at 17 of 180, the ecut30 cells from si16 up at 7). A card takes the whole box
+(`resolve_plane_chunk` returns `None` off the CPU), so a time on a card never carried them.
+
 **What it did for the pools**, the same cells and pinning as "k-point pools against `pw.x
 -nk`" above, ms per iteration at six one-core pools, speedup over this code's own one
 core, and that speedup as a share of `pw.x -nk 6`'s:
@@ -3389,6 +3416,16 @@ testable against the trace above with no new `pw.x` run:
   collapse-to-Ritz at `nvecx` is **not** the same thing: it keeps the iteration
   history and the preconditioner state where a re-entry discards them. A periodic
   hard restart is the standard rescue for a stalled Davidson.
+  *Corrected 2026-11-20 (audit 2026-11-20b #9).* `c_bands.f90` re-enters `cegterg` while
+  `ntry <= 5` at `maxter = 20`, counted before the test, so six calls and 120 steps outside
+  an SCF, each re-entry restarting Davidson from the current `evc` with a fresh subspace;
+  inside an SCF it re-enters only while more than five bands are unconverged. So QE's
+  budget is 120 steps and not 100 outside an SCF, and inside one `pw.x` moves on once five
+  or fewer bands are unconverged. `MAX_ITERATIONS` here is still 100. That allowance is
+  written and held as `notes/audit-1120/round2-9-scf-stragglers.patch`: read per call on
+  si8-1k, si16-1k and si8-us-1k at their own inputs and on the Y3 silicon of `OPEN.md`, no
+  call took more than 10 steps at any k-point (1 to 3, 1 to 3, 1 to 4 and 2 to 10), so it
+  saves nothing on these cells and there is no timing pair to show.
 * **The preconditioner**, compared directly against `g_psi.f90`'s form. A weak
   diagonal preconditioner shows up as exactly this signature -- many cheap steps
   rather than few expensive ones.
@@ -11373,6 +11410,27 @@ No reference code here implements the local mBJ (QE has no TB09 proper; Elk comp
 
 The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. In a cell with vacuum the hold below `n` = 1e-5 keeps the SCF fast: graphane at 20, 30, 40 bohr in 13 to 14 iterations, where the potential evaluated down to 1e-9 took 18, 66 and 58 (P182).
 
+### The hold with one mean per face (audit 2026-11-20 #9 and #10, this workstation, 2026-11-20)
+
+`hold_vacuum_potential` now decides inside the jit whether the shell is the two faces of one slab
+(`hold_faces`), which adds five reductions per axis (one `any`, two `all`, two sums), about a quarter
+of the hold. Before at `ec0a63ee`, after at `b59f3277`, cores 0 to 3, each arm in its own process, the
+compiled call timed after warm-up:
+
+| what | before | after |
+|---|---|---|
+| the hold alone, silicon's 24^3 grid (no shell), median of 200 calls | 0.69 to 0.82 ms | 1.10 to 1.38 ms |
+| the hold alone, graphane's 24x24x100 | 1.66 to 1.75 ms | 2.31 to 2.48 ms |
+| the hold alone, graphane tiled to 96x96x400 | 98 to 103 ms | 126 to 130 ms |
+| the whole potential build, si8-1k under `lmbj`, median of 30 calls, three processes per arm | 15.8, 16.0, 16.2 ms | 16.3, 16.4, 16.5 ms |
+| the whole potential build, graphane at 20 bohr, median of 40 calls, two processes per arm | 45.2 and 45.9 ms | 44.6 and 45.1 ms, not resolved |
+| an SCF iteration of si8-1k, median of 8 SCFs from a fresh `Calculator`, first dropped | 84.9, 85.0, 85.3 ms | 83.7, 84.5, 85.8 ms, not resolved |
+| an SCF iteration of graphane at 20 bohr, median of 2 | 647 and 712 ms | 661 and 662 ms, not resolved |
+
+The eigenvalues of si8-1k are identical in the two arms. The host check after the SCF
+(`warn_about_the_vacuum_hold`) is one read of the density and one `scipy.ndimage.label`; on si8 it
+is inside the scatter above.
+
 ### No read of `c` for the PAW spheres in a run without PAW (audit 2026-11-20 #24, this workstation, 2026-11-20)
 
 The SCF fetched `Potential.meta_c` to the host for `Calculation.onecenter` once per iteration and once
@@ -11427,6 +11485,26 @@ the chunk's states, and the result adds an `(nspin, nk, 3, 3)` real map (5 kB at
 The peak is the fixed-density store, `nk x nbnd x npol npwx` complex, as for every sum over
 states here. The overlap route holds the occupied manifold on the whole mesh, `N^3 x nocc x
 npwx` complex, and one `(N^3, nocc, nocc)` overlap block per mesh direction.
+
+### The overlap metric reads `nelec` from the valence charges (audit 2026-11-20c #16, this workstation, 2026-11-20)
+
+The overlap quantum metric reads `nelec` from the valence charges instead of building a second
+`Calculation` (`94d33304`): `System` has no `nelec`, so `_electrons` built a whole `Calculation`
+at every call. PAW silicon (`Si.pbe-n-kjpaw_psl.0.1.UPF`, `celldm(1) = 10.26`, 20/160 Ry, whole
+3x3x3 grid, `nosym`, converged at `conv_thr = 1e-10`), each arm in its own process on
+`taskset -c 0-3`, the old one from a worktree at `e694ab0a`, one warm call and then 5 timed
+calls, medians, two alternating rounds:
+
+| what | before, s | after, s |
+|---|---|---|
+| `_electrons` alone, the removed build | 0.743 and 0.748 | 3.4e-6 and 3.2e-6 |
+| the whole `run_quantum_metric(method = 'overlap')` with the caller's `calculation` | 2.302 and 2.796 | 1.585 and 1.572 |
+
+The two "before" readings of the whole metric are 21 per cent apart, so the second round had
+noise; the drop in the first round, 0.72 s, is the size of the removed build. A third round is
+discarded, since another session's process held a core through it. `metric`,
+`localization_tensor` and `nelec` are equal to the bit between the arms. The peak memory was
+not measured.
 
 ## Wannier functions against `pw.x` + `pw2wannier90.x` + `wannier90.x` (CPU, 2026-11-04)
 
