@@ -131,3 +131,51 @@ the reason, and what would change it.
   `workflows/ultracell.py`), so on an augmented dataset it checks the wrong tip positions.
 - **Round three #6, the siblings, landed** in group E as 1024b5c5 with four tests in
   `tests/unit/test_optics_paw_meta.py`; the patch file was removed.
+
+## The session of 2026-11-21 (groups F and G, the record, the gate)
+
+- **The fix agents of this day ran on Fable, not Opus**, so that the attribution line of their
+  commits names the model that wrote them. The project rule allows both.
+- **The workstation rule of 2026-11-15 replaced the 12G cap of the brief**: 5 GB per run and one
+  python at a time, so groups F and G ran one after the other and the gate ran on Triton.
+- **The fast gate was submitted on Triton without a second question** (job 21736920 at
+  `6b7bb998`, the committed `tools/cluster/gate.sbatch`, after `sbatch --test-only`), on the
+  user's word of that morning: "If you have to run heavy things, just launch them to Triton". The
+  command is in the reply of that session and in `docs/triton-notes.local.md`. No slow test was
+  submitted, and nothing was cancelled or deleted on the cluster.
+- **The rule text for `.claude/rules/scope.md`, `reference-source-map.md` and the audit row of
+  `CLAUDE.md` is applied as one commit** (`17a2ab6d` before the rebase), after the record agent
+  left it as a patch. It says what the code refuses now and can be dropped on its own.
+- **Round three #13: the turning wedge is lifted for the two one-shot torques only** (1915ce05),
+  on the measured agreement with nosym (the orientation torque to 2.2e-11 Ry/rad on tetragonal Co,
+  where the wedge of the unturned moment's magnetic group is 3.6e-5 off; 1.2e-11 on hexagonal Co,
+  whose inversion swaps the two atoms). PAW at a turned orientation and `frozen_expectation` keep
+  nosym, the first for want of a PAW number, the second although it was measured equal (3.9e-12
+  Ry on 7.6e-7). `relax_orientation` refuses the wedge at its door, because
+  `Calculation.with_texture` refuses a turn with symmetry at step two; this also stops the
+  one-step runs that used to finish on that wedge. What would change each: the PAW pair (one
+  `soc_scale = 0` SCF of the nickel cell of `tests/regression/test_orientation_paw.py` and two
+  one-shots), one keyword at the call of `frozen_expectation`, and an exemption of a
+  `turning_moments` system in `with_texture` with a two-step test.
+- **Round three #13: PAW is inconsistent on the turning wedge and left so.** The identity
+  rotation is allowed on PAW since 2026-11-15 and a turned one is refused, although the wedge's
+  validity does not depend on the orientation. No refusal was added at the identity and none was
+  lifted, because there is no PAW number either way.
+- **Round three #13: the two wedge comparisons are in the gate** at about 26 s warm (82 s for the
+  file with a cold cache), against the five-second rule of the `test-runs` skill for identities,
+  because the lift rests on them. Their bound is 2e-10 Ry/rad, three times the largest difference
+  measured on this workstation (5.7e-11) and 27 times what the test's own cells gave (7.4e-12);
+  on another machine a failure is solver noise first. Marking them slow is the user's choice.
+- **Round three #14: the spiral's first-order leg asks the calculation it is handed**
+  (7603f76b, `reject_single_band_side`), since the facade always hands its own. The three facades
+  still run their SCF before the single-precision refusal, as the four I119 legs do; asking first
+  is a change to `calculator.py`.
+- **Round three #15: the entry test of `run_orientation_torque` passes a small density array**,
+  not `None`, because that route lays the density along the axis before the guard.
+- **Round three #24, the shape decided before the fix**: a checkpoint is read only by the run
+  that wrote it. A derived calculator and the inner ground states of a workflow do not inherit a
+  constructor-level `checkpoint_dir` or `mixing_from`; a directory named at the child's own
+  `get_scf` still resumes, which is the flow `tests/unit/test_continuation_machinery.py` pins.
+  No subdirectory per direction or per q (a new feature, the user's choice), and the same
+  directory named by hand at two different runs stays possible, because the fingerprint checks
+  shapes only (also the user's choice).
