@@ -144,7 +144,7 @@ the reason, and what would change it.
   command is in the reply of that session and in `docs/triton-notes.local.md`. No slow test was
   submitted, and nothing was cancelled or deleted on the cluster.
 - **The rule text for `.claude/rules/scope.md`, `reference-source-map.md` and the audit row of
-  `CLAUDE.md` is applied as one commit** (`17a2ab6d` before the rebase), after the record agent
+  `CLAUDE.md` is applied as one commit** (`b7e645d3`; the line of `calculator.md` is `2ef8103b`), after the record agent
   left it as a patch. It says what the code refuses now and can be dropped on its own.
 - **Round three #13: the turning wedge is lifted for the two one-shot torques only** (1915ce05),
   on the measured agreement with nosym (the orientation torque to 2.2e-11 Ry/rad on tetragonal Co,

@@ -1,7 +1,45 @@
-# Audit fixes of 2026-11-20: where we stopped (checkpoint of 2026-11-21)
+# Audit fixes of 2026-11-20: the state at the end of 2026-11-21
 
-This note is for the session that continues the work. It says what is done on the branch,
-what is left, how the fix agents were run, and what waits for the user.
+**The fixes are finished. What is left is the user's.** This first section is the state now.
+The sections below it are the checkpoint of the night before, kept as the history of how the
+work was run; where they say "left" or "not run", this section wins.
+
+## The state now (2026-11-21)
+
+- Branch `audit-fixes-1120`, 147 fix commits to `277ce4d5`, then the record. Not merged into
+  master and not pushed.
+- Round three is done: group F (#13, #15, #14, #18) and group G (#24 landed; #23 held as a
+  patch; #17 deferred, with its diff kept). `PLAN.md` P183 is the record, with the decisions
+  taken without the user, the held patches, the open choices and the slow files.
+- The proposed text is applied: dated corrections in the phases of `PLAN.md`, `PERFORMANCE.md`,
+  `OPEN.md` Part XXXII (ten items), `notes/incompat/I28.md`, the `with_kpoints` docstring, and
+  notebook 40. **The rule files are two commits of their own**, so that the user can drop
+  them: `b7e645d3` (`.claude/rules/scope.md`, `reference-source-map.md`, the audit row of
+  `CLAUDE.md`) and `2ef8103b` (`.claude/rules/calculator.md`).
+- **The fast gate ran on Triton** (the workstation takes light runs only): job 21736920 at
+  `6b7bb998`, 4938 passed, 65 skipped, 1940 deselected and the 5 failures of that venv (3
+  watchdog without `psutil`, 2 of `test_check_guide.py` without `yaml`), 1 h 29 min 44 s, 5.50
+  GB. The gate line of P183 has the job at the final head. The four files that venv cannot
+  run passed here at the head (`test_check_guide.py`, `test_memory_watchdog.py`,
+  `test_result_plots.py`, `test_notebook_conventions.py`, 550 tests), and `mkdocs build
+  --strict` builds.
+- **No slow test was run.** The 99 files the changes reach are in
+  `notes/audit-1120/slow-files.txt`, one per line. The array is prepared and not submitted
+  (`tools/cluster/slow_files.sbatch`, `--array=0-98%12`, checked with `sbatch --test-only`);
+  the command is in `docs/triton-notes.local.md`, "Added 2026-11-21".
+- On Triton: the worktree `apps/defuqumat-audit1120`, the ref
+  `refs/remotes/bundle/audit-1120` of `defuqumat-qtt` and the bundles `audit-1120.bundle` and
+  `audit-1120b.bundle` are still there. Their removal waits for the user's word.
+- `session/agent-reports.md` (untracked) has the three reports of 2026-11-21 at its end, and
+  `session/scratch/r3f` and `r3g` the scripts of groups F and G.
+
+What waits for the user, in this order: the slow files; the open choices of P183, one pick
+list at a time; the merge and the push; whether `notes/audit-1120/` stays in the repository.
+
+# The checkpoint of the night of 2026-11-20 (history)
+
+This note was for the session that continued the work. It says what was done on the branch,
+what was left, how the fix agents were run, and what waited for the user.
 
 ## State
 
