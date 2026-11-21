@@ -9679,7 +9679,7 @@ a nonmagnetic run should return zero without running anything.
 **How to know it worked:** the exact-trace spin DOS of the magnetic cell on the wedge equals
 the whole grid's to round-off, and each sign check breaks the equality when its sign is dropped.
 
-## 2. Six fixes of the audit are written and held as patches **[open 2026-11-21; each is the user's choice]**
+## 2. Six fixes of the audit are written and held as patches **[open 2026-11-21; each is the user's choice; two more are item 8]**
 
 **What it affects.** Each patch is in `notes/audit-1120/`, with its tests inside it, and was
 held because it moves a number `PLAN.md` records, reaches slow files only the user runs, or
@@ -9781,3 +9781,114 @@ tip plane's own coordinate and the plane spacing, before the guard.
 **How to know it worked:** on a dataset with an augmentation radius, a scan whose range enters
 a sphere is refused and one that stays in the vacuum runs, and the test fails on the code
 before the change.
+
+## 6. The turning wedge is lifted for the two one-shot torques only **[open 2026-11-21, audit 2026-11-20c #13; three lifts, each the user's choice]**
+
+**What it affects.** A run from `Calculator.with_turning_moments()`. `get_torque` and
+`get_orientation_torque` take its identity-and-inversion wedge at every orientation since
+`1915ce05` (2.2e-11 Ry/rad from `nosym` on tetragonal Co, where the wedge of the unturned
+moment's group is 3.6e-5 off). Three routes still need `nosym` there: a PAW dataset at a turned
+orientation, `get_first_order_soc` (`frozen_expectation`), and `get_relaxed_orientation`
+(`relax_orientation`), which refuses the wedge at its door. On PAW the identity rotation on
+that wedge is allowed since 2026-11-15 and is not measured either, so the PAW rule is not
+consistent.
+
+**What to do.** (a) PAW: one `soc_scale = 0` SCF of the nickel cell of
+`tests/regression/test_orientation_paw.py` and two one-shots, wedge against `nosym`; then lift
+the turned case or refuse the identity. (b) `frozen_expectation` on the wedge was measured
+equal to `nosym` (3.9e-12 Ry on 7.6e-7 on the committed cell, 8.5e-12 on 1.6e-5 at 3x3x3);
+passing `turning_wedge=True` at its call lifts it. (c) `Calculation.with_texture`
+(`scf/driver.py`) refuses a turn on a run with symmetry and already compares the k-set
+bitwise; exempt a `turning_moments` system there, drop the door refusal of
+`relax_orientation`, and add a two-step test.
+
+**How to know it worked:** for each route, the number on the wedge agrees with `nosym` to the
+accuracy of the states, the wedge of the unturned moment's group does not (the control), and
+the test fails on the code before the lift.
+
+## 7. One checkpoint directory named by hand at two different runs is not told apart, and the multi-run workflows have no restart **[open 2026-11-21, audit 2026-11-20c #24; two additions, sized]**
+
+**What it affects.** Since `6aef4873` a constructor-level `checkpoint_dir` no longer crosses
+into a derived calculator or into the ground states of `get_spiral_scan`,
+`get_relaxed_anisotropy` and `get_magnetoelectric_tensor`. Two things are left. A directory
+the caller names at two runs (`calc.get_scf(checkpoint_dir='ck')`, then
+`calc.with_moments(m).get_scf(checkpoint_dir='ck')`) is still resumed by the second, because
+the fingerprint of `load_state` is shapes, `nspin`, `nspin_mag`, `nbecsum` and types. And a
+relaxed anisotropy, a spiral scan or a magnetoelectric tensor run from the facade has no
+checkpoint at all now; named in the call, `get_spiral_scan(checkpoint_dir=...)` starts each
+`q` from the state of the one before, and the magnetoelectric `scf_options['checkpoint_dir']`
+chains its six runs as `chain=True` does (3.9e-8 against 3.4e-9 on the null, its docstring).
+
+**What to do.** (a) A run fingerprint: positions, cell, starting moments and angles, field and
+constraint, spiral `q`, quantization axis, `soc_scale`. About 25 lines in `state_fingerprint`,
+15 in `_check_fingerprint`, 10 on the resume branch of `run_scf` only (`run_relax` resumes
+from the previous geometry's state on purpose). Old files lack the keys and are skipped by the
+existing rule. Six fast tests, half a day. The choice: a mismatch raises, or warns and starts
+from the seed. (b) A subdirectory per direction, `q` or field, named by value and not by
+index: about 40 lines in three workflows and three tests, 15 lines more to save converged
+results.
+
+**How to know it worked:** (a) the second run of the example above starts from its own
+moments, and a killed run resubmitted with the same command still resumes. (b) A relaxed
+anisotropy killed in its second direction and resubmitted reruns only that direction, and
+`E(z) - E(x)` on `co-tetragonal-relaxed-mae.in` is the -0.422517 meV of the separate runs.
+
+## 8. Two more fixes of the audit are held as patches: the 'fit' estimate and the ultracell's weighted states **[open 2026-11-21, audit 2026-11-20c #23 and #17]**
+
+**What it affects.** *#23, memory on a card.* `k_batch = 'fit'` and the band-batch chooser
+price a whole mesh as a stream where the SCF holds the store on the device, so the estimate
+is low by `wf_spin S` (2.0 to 4.2 per cent on two-atom Si at 64 k-points, 7.6 per cent on the
+hydrogen chain) and the whole mesh, or a band block, can be chosen where it does not fit.
+Never a wrong number. *#17, time.* Under fixed occupations the ultracell density and `tau`
+transform every state, 5/6 of them with zero weight at `nbnd = 24` on silicon (0.278 of the
+box transforms of an iteration, 0.556 with `tau`).
+
+**What to do.** *#23.* `notes/audit-1120/round3-23-fit-device-store.patch` applies at
+`277ce4d5`. Its k-chunk half (`sizing.py` and the `resolve_k_batch_for` hunk) flips no
+recorded choice. Its band-batch half moves the recorded 14 bands of `h40-chain-lsda.in` on the
+GTX 1060 at 2225 MB to 11, so either measure the chain there (the peak at 14 and at 11 bands
+against 1335 MB) or land it and mark the 14 as superseded. *#17.*
+`notes/audit-1120/round3-17-ultracell-weighted-states.patch`, bitwise equal at `nspin = 1` on
+four cases. Run `notes/audit-1120/round3-17-ultracell-timing.py` on a quiet machine at 4 and 8
+cells for the pair, then check `nspin = 2`, a spinor and one TB09 cell bitwise.
+
+**How to know it worked:** *#23:* `tests/unit/test_fit_store.py` of the patch passes, and the
+chooser's whole-mesh estimate equals `Calculator.estimate(k_batch=None)`. *#17:* the density,
+the levels and the energy are bitwise equal in every regime, and the pair is in
+`PERFORMANCE.md`.
+
+## 9. `Calculator.with_positions` raises a shape error when the move changes the symmetry group **[open 2026-11-21, seen beside audit 2026-11-20c #24, reproduced once]**
+
+**What it affects.** A derived calculator on an automatic k-grid with symmetry on. A move that
+changes the group changes the wedge (3 to 5 points on two-atom Si at 2x2x2, one atom moved by
+0.02 alat), the frozen basis holds the parent's spheres, and `Calculation.__init__`
+(`scf/driver.py:2689`) raises `TypeError: add got incompatible shapes for broadcasting:
+(5, 1, 3), (3, 190, 3)`. It is loud, not a wrong number. The script that showed it is
+`notes/audit-1120/session/scratch/r3g/repro_withpos.py` (untracked).
+
+**What to do.** Decide what a frozen basis means when the k-set changes: rebuild the basis for
+the new wedge (then the move is not at a frozen basis), keep the parent's k-set and its
+weights (then the wedge is no longer the group's), or refuse by name and send the user to
+`nosym` or to a fresh `Calculator`. The relaxations set up their k-points once and only check
+the symmetry afterwards, as `pw.x` does, so they do not pass here.
+
+**How to know it worked:** the example gives either a result or an error that names the
+cause, and a test pins it.
+
+## 10. A resume from a mid-run checkpoint is refused at a cutoff below the dataset's **[open 2026-11-21, seen beside audit 2026-11-20c #24, measured on one cell]**
+
+**What it affects.** On tetragonal Co at 12/96 Ry the density of a mid-run state misses the
+electron count (8.999881 at iteration 10 and 8.999987 at 12, against 9), so a resume from the
+run's own checkpoint stops with the `z_valence` message. At 20/160 Ry it integrates to
+9.00000000 and resumes. So a low-cutoff test run cannot be resumed, and the message does not
+say why.
+
+**What to do.** Find which term loses the charge at a low `ecutrho`; this was not
+investigated. Then either renormalise on write, or widen the tolerance of the resume check
+with a warning.
+
+**How to know it worked:** the 12/96 Ry run resumes from its own checkpoint and ends at the
+energy of the uninterrupted run.
+
+A cosmetic point seen in the same work: the drift warning of `run_relaxed_anisotropy` prints
+its direction as `np.float64(0.0)`.

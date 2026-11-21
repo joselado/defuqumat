@@ -179,3 +179,33 @@ the reason, and what would change it.
   No subdirectory per direction or per q (a new feature, the user's choice), and the same
   directory named by hand at two different runs stays possible, because the fingerprint checks
   shapes only (also the user's choice).
+- **Round three #24: landed** (6aef4873, with the tests of 277ce4d5). The drop is warned once,
+  not silent, and also on the three multi-run workflows, because what is lost is a restart and
+  a job would otherwise start over at each submission with nothing in its log. The relaxed
+  anisotropy refuses a `checkpoint_dir` named in the call only for more than one direction;
+  one direction is one run. Left as they are: `mixing_from` named in a multi-run call (a mixer
+  history, same fixed point), `get_spiral_scan(checkpoint_dir=...)` (each q starts from the one
+  before), the magnetoelectric `scf_options['checkpoint_dir']` (it acts as `chain=True`, 3.9e-8
+  against 3.4e-9 on the null; a refusal when chain is off is six lines and a test), and
+  `get_relax`, whose directory is the relaxation's own. Open: the run fingerprint and the
+  subdirectories per run (`OPEN.md` Part XXXII item 7).
+- **Round three #23: confirmed by arithmetic, not landed.** The recorded 14-band choice of the
+  hydrogen chain on the GTX 1060 flips to 11, so the fix is
+  `round3-23-fit-device-store.patch`. Its k-chunk half flips nothing and could land apart; it
+  was held with the rest because the instruction was "if any flips, do not commit". In the
+  patch a fixed-density solve is priced with the SCF's store, so high by the same amount, on
+  the safe side.
+- **Round three #17: deferred**, as `round3-17-ultracell-weighted-states.patch`. Bitwise equal
+  under fixed occupations at nspin = 1 on four cases; the pair (10.241 against 8.620 s, five
+  samples, four cells) was taken at a load of 8 to 10, with another session's scripts running,
+  so it is not a measurement. Not sent to Triton: the patch still needs nspin = 2, a spinor
+  and tau checked bitwise before a timing would let it land.
+- **Seen beside group G, for OPEN.md** (Part XXXII items 9 and 10): `with_positions` raises a
+  shape error when the move changes the group on an automatic k-grid with symmetry, and a
+  resume from a mid-run checkpoint is refused at 12/96 Ry on tetragonal Co because the density
+  misses the electron count (8.999881 against 9).
+- **Two departures from the running rule, reported by the agents.** A few text edits were made
+  with a bare `python3 -` outside the cap (never beside a run), and group G, finding another
+  session's short model scripts running back to back, waited only for a python above 1 GB
+  resident before each of its runs. Every run of the package was under the 5 GB cap, one at a
+  time; the largest peak read was 2.9 GB.

@@ -1,0 +1,62 @@
+diff --git a/defuqumat/ultracell/driver.py b/defuqumat/ultracell/driver.py
+index 3dd7832f..5ef50a40 100644
+--- a/defuqumat/ultracell/driver.py
++++ b/defuqumat/ultracell/driver.py
+@@ -2074,8 +2074,21 @@ def run_ultracell(
+         # accumulation with a smeared delta at the tip energy in place of
+         # ``occupations`` (``PLAN.md`` P89), so a second copy of the loop here
+         # would be a second place for the normalisation to drift.
++        # **Only the weighted states are transformed, under fixed occupations.**
++        # The basis is ``N nbnd`` states a ``k0`` and the filled ones are the
++        # leading ``N nocc``; the rest carry a weight of exactly zero, and each
++        # cost one box transform here (three in ``tau``) to be multiplied by
++        # it. The count is read off the weights themselves, so nothing with a
++        # weight is dropped, and it is the same at every iteration, so the
++        # kernels compile once. Under smearing the count moves with the Fermi
++        # level and the whole pass is kept.
++        weighted = _weighted_states(occupations, smearing)
++        filled, filled_weights = vectors, occupations
++        if weighted is not None:
++            filled = [[states[:, :weighted] for states in row] for row in vectors]
++            filled_weights = occupations[..., :weighted]
+         new = ultracell_band_density(
+-            coefficients, vectors, occupations, box_index, grid,
++            coefficients, filled, filled_weights, box_index, grid,
+             float(cell.volume), npol=npol, nspin_mag=nspin_mag,
+             batch=state_batch, dtype=density.dtype,
+         )
+@@ -2083,8 +2096,8 @@ def run_ultracell(
+         if tau_state is not None:
+             new_tau = jnp.stack([
+                 sum(ultracell_kinetic_density(
+-                        coefficients[spin, ik], vectors[spin][ik],
+-                        jnp.asarray(occupations[spin][ik]), box_index[ik],
++                        coefficients[spin, ik], filled[spin][ik],
++                        jnp.asarray(filled_weights[spin][ik]), box_index[ik],
+                         kplusg[ik], grid, float(cell.volume), batch=state_batch)
+                     for ik in range(nk0))
+                 for spin in range(blocks)
+@@ -2622,6 +2635,23 @@ def _box_ldos(coefficients, vectors, levels, fermi, weights, cells, box_index,
+     return field[0]
+ 
+ 
++def _weighted_states(occupations, smearing) -> int | None:
++    """How many leading states hold all the weight, or ``None`` to keep every one.
++
++    ``None`` under smearing, where the count follows the Fermi level and a new
++    count is a new compiled kernel, and when no trailing state is empty. The
++    count is the last state with a nonzero weight in any block at any ``k0``,
++    read on the host from the weights the density is about to use, so a state
++    the pass leaves out has a weight of exactly zero and the sum is unchanged.
++    """
++    if smearing:
++        return None
++    used = np.flatnonzero(np.any(np.asarray(occupations) != 0.0, axis=(0, 1)))
++    if used.size == 0 or int(used[-1]) + 1 >= np.shape(occupations)[-1]:
++        return None
++    return int(used[-1]) + 1
++
++
+ def _occupy(levels, weights, nelec, cells, system, smearing, calculation):
+     """One Fermi level over all ``N nbnd`` ultracell states at every ``k0``.
+ 

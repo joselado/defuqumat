@@ -8204,6 +8204,19 @@ included. Timed on the CPU, third call: 9 ms on `si8-1k.in` against a 0.67 s bui
 on `pt-soc-paw-nosym.in` against 2.41 s, 0.29 s on `h40-chain-lsda.in` against 4.57 s (6
 per cent, the largest box here).
 
+**Added 2026-11-21 (audit 2026-11-20c #23): the 14 bands at 2225 MB belong to a streamed
+store.** They were chosen and measured while a one-k-point store streamed. Since `170f2b68`
+(2026-10-02) the SCF holds that store on the device, 104.6 MB more on this cell, which the
+chooser does not count: with it, 14 bands is 1378.1 MB against a budget of 1335.0, and the
+choice would be 11 (1315.6 MB). The same gap is in `k_batch = 'fit'` at the whole mesh
+(77.511 MB streamed against 79.073 MB on the device for two-atom Si at 12 Ry and 64 k-points,
+`david = 4`; the difference, 1.562 MB, is the store `S`). No recorded `'fit'` choice of the
+k-chunk changes under the corrected estimate: on the RTX A2000 at 10.44 GiB free (budget 6.264
+GiB), Si8 at 20 Ry is 0.7942 GiB at 27 k-points, 1.8831 at 64 and 3.6723 at 125, all whole,
+and Si16 at 30 Ry and 64 k-points stays at 22 a call. The fix is written and held,
+`notes/audit-1120/round3-23-fit-device-store.patch` (`OPEN.md` Part XXXII item 8), because it
+moves the 14 above. Nothing here was run on a card; these are the estimates of `sizing.py`.
+
 ## A band path that keeps no states (GTX 1060, 2026-09-28)
 
 `notes/GPU-MEMORY-NEXT.md` item 1. `fixed_density_bands` -- `run_bands`, `run_nscf` and so the
