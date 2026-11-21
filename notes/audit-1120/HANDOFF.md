@@ -19,7 +19,9 @@ work was run; where they say "left" or "not run", this section wins.
 - **The fast gate ran on Triton** (the workstation takes light runs only): job 21736920 at
   `6b7bb998`, 4938 passed, 65 skipped, 1940 deselected and the 5 failures of that venv (3
   watchdog without `psutil`, 2 of `test_check_guide.py` without `yaml`), 1 h 29 min 44 s, 5.50
-  GB. The gate line of P183 has the job at the final head. The four files that venv cannot
+  GB; and job 21739219 at `ceedcaf6`, after groups F and G and the record, 4969 passed and
+  the same 5 failures, 1 h 20 min 19 s, 6.07 GB. The commits after `ceedcaf6` touch only
+  notebook prose and the record. Both are in the gate line of P183. The four files that venv cannot
   run passed here at the head (`test_check_guide.py`, `test_memory_watchdog.py`,
   `test_result_plots.py`, `test_notebook_conventions.py`, 550 tests), and `mkdocs build
   --strict` builds.
