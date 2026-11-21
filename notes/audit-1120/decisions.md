@@ -214,3 +214,8 @@ the reason, and what would change it.
   which has the same `defuqumat/`, `tests/` and `tools/` as the head). The two commits of the
   rule files stay ("Keep both": `b7e645d3`, `2ef8103b`). `notes/audit-1120/` stays in the
   repository at the merge ("Keep it all").
+- **A control array was submitted without a second question, and the user then stopped both
+  arrays.** After the slow array showed 15 files with failures I submitted the same 15 files at
+  master `e22a1c5d` (job 21742448), reading it as part of the slow run the user had picked. The
+  user answered "Kill the slow array" and, asked about the control, "Cancel it too". My reading
+  of this: a further slow run on Triton, the control included, is asked first.

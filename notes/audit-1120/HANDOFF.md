@@ -39,8 +39,19 @@ Decided by the user on 2026-11-21, by pick list: the 99 slow files run on Triton
 21740810 at `ceedcaf6`, logs `calculations/audit-1120/slow-21740810_<task>.out`, task n is
 line n+1 of `slow-files.txt`); the two rule commits stay; `notes/audit-1120/` stays.
 
-What waits, in this order: the reading of the slow array into P183; the open choices of
-P183, one pick list at a time; the merge and the push; the removal of the leftovers on Triton.
+**The slow array ran and the user stopped it** ("Kill the slow array", then "Cancel it too"
+for the control). 83 of the 99 files passed; `tests/regression/test_realtime_regimes.py` did not
+finish (cancelled after 1 h 21 min); 15 files have failures, 18 tests, listed with what each
+read in P183, "The slow files were then run". A control at master `e22a1c5d` (job 21742448)
+was cancelled after 1 min 28 s: only `test_elastic_one_trace.py` (3 tests) and
+`test_elk_allelectron.py` (1 test) ended, and they fail at master too. **The other 14 tests,
+in 13 files, are not assigned to the branch or to master, and nothing was read against the
+code.** No job of this work is left in the queue.
+
+What waits, in this order: the 14 slow failures (a control at master for the 13 files needs
+the user's word, since the user stopped both arrays; reading the code is free); the open
+choices of P183, one pick list at a time; the merge and the push; the removal of the
+leftovers on Triton, which now include the worktree `apps/defuqumat-audit1120-base`.
 
 # The checkpoint of the night of 2026-11-20 (history)
 
