@@ -185,9 +185,14 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     forces, the stress and the density of states are then the same as with
     `nosym`. Some runs still need `nosym`: an ultrasoft or PAW dataset, DFT+U, a
     fully relativistic dataset, an explicit list of k-points (so also a band
-    structure along a path), the site angular momenta and the projected density
-    of states. A change of $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
+    structure along a path) and the site angular momenta. A change of
+    $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
     the relaxation of $\mathbf q$ and the scan need it too.
+    The projected density of states of a spiral gives an error, also with
+    `nosym`. The reason is that the two spinor components are on the spheres of
+    $\mathbf k + \mathbf q/2$ and $\mathbf k - \mathbf q/2$, and the projection
+    on the orbitals of each sphere is not written. For a commensurate
+    $\mathbf q$ you can use the supercell instead.
     It also needs starting moments off the rotation axis $z$, because a moment
     along $z$ does not turn and the run would converge to the ferromagnet, so you
     set `angle1` or give the moments a transverse part.
