@@ -2517,9 +2517,29 @@ def run_relaxed_anisotropy(
     two states that are not the ones asked for.
 
     ``options`` go to :func:`~defuqumat.scf.driver.run_scf`. ``conv_thr``
-    defaults to 1e-10.
+    defaults to 1e-10. ``checkpoint_dir`` is refused for more than one
+    direction: every direction would write and read the one directory, the
+    checkpoint's fingerprint does not hold where the moment points, and the
+    ``nosym`` k-set gives every direction the same shapes, so the second
+    direction would resume the first one's state with its moment. A cardinal
+    axis is stationary, so that run converges where it resumed and the two
+    energies come out nearly equal (audit 2026-11-20c #24).
+    :func:`run_relaxed_direction` takes a directory, one per direction.
     """
     directions = _direction_set(system, directions)
+    if len(directions) > 1 and options.get("checkpoint_dir") is not None:
+        raise ValueError(
+            f"run_relaxed_anisotropy: checkpoint_dir = "
+            f"{str(options['checkpoint_dir'])!r} for {len(directions)} "
+            "directions. Every direction would write and read that one "
+            "directory, and a checkpoint does not record where the moment "
+            "points, so each direction after the first would resume the state "
+            "the one before it left, with its moment along the old direction; "
+            "on a stationary axis the run stays there and the anisotropy comes "
+            "out near zero. Drop checkpoint_dir here, or run each direction "
+            "with run_relaxed_direction(..., direction=d, checkpoint_dir=...) "
+            "and a directory of its own"
+        )
     results = tuple(
         run_relaxed_direction(
             system, pseudos, direction=direction,

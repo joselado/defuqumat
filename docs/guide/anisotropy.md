@@ -238,7 +238,15 @@ on the torque, in Ry per radian.
     moment while the density relaxes, so the code warns when a direction
     drifted more than one degree from where it started, and when a direction
     did not converge. Read `converged` and `drifts` on the result before the
-    anisotropy itself.
+    anisotropy itself. `get_relaxed_anisotropy` gives an error if you give
+    `checkpoint_dir` in the call with more than one direction, and it does not
+    take the `checkpoint_dir` of the calculator. With one directory, the second
+    direction would continue from the state of the first one, with the moment
+    along the first direction. On tetragonal cobalt this gave the same energy
+    for $x$ and $z$, so an anisotropy of 0.000 meV, where the two separate runs
+    differ by 0.4225 meV. To restart a long run, you run each direction with
+    `run_relaxed_direction` of `defuqumat.workflows.anisotropy` and a directory
+    of its own.
 
 The notebooks for this page are
 [36, magnetocrystalline anisotropy](https://github.com/joselado/defuqumat/blob/master/notebooks/36_magnetic_anisotropy.ipynb)

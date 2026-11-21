@@ -323,6 +323,24 @@ several cards are in
     scratch directory. We have not timed the default of 10 on a large cell, so
     you may need to set `checkpoint_every` yourself.
 
+    A checkpoint is read only by the run that wrote it. If you give
+    `checkpoint_dir` when you create the calculator, it is the directory of
+    `get_scf` of this calculator, and `get_relax` keeps the files of the
+    relaxation there too. A calculator that you derive from it with
+    `with_positions`, `with_cell`, `with_kpoints`, `with_spin`, `with_moments`,
+    `with_turning_moments` or `relaxed` is another run, so it does not get the
+    directory, and the code gives a warning. To write a checkpoint for the
+    derived calculator you give it a directory of its own in the call,
+    `child.get_scf(checkpoint_dir=...)`. The same holds for `mixing_from`.
+    `get_spiral_scan`, `get_relaxed_anisotropy` and
+    `get_magnetoelectric_tensor` run several ground states in one call, so they
+    also do not take the directory of the calculator, and these runs write no
+    checkpoint. The code does not check that you use one directory for one run
+    only. A checkpoint stores the shapes of the arrays and not the moments, the
+    positions, the field or the spiral wavevector. If you give the same
+    directory to two different runs, the second one can continue from the
+    state of the first, so you use a different directory for each run.
+
     `k_batch="fit"` is chosen for the k-points of the SCF, and a band path or
     an NSCF run uses the same number. It grows the number of k-points only when
     all the bands of one k-point fit on the card, otherwise it stays at one

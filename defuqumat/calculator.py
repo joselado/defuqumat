@@ -231,6 +231,57 @@ SCF_ONLY_OPTIONS = frozenset({
 })
 
 
+#: The shared options that name **one run's state on disk**, and so belong to
+#: one run and to no other: **a checkpoint is read only by the run that wrote
+#: it** (audit 2026-11-20c #24).
+#:
+#: Given to the constructor they are this calculator's own
+#: :meth:`Calculator.get_scf`, and its own :meth:`Calculator.get_relax`, whose
+#: ``checkpoint_dir`` is the relaxation's restart directory with file names of
+#: its own. They are **not** handed to a derived calculator
+#: (:meth:`Calculator._derived`), which is another system, and not to the
+#: ground states a workflow runs inside one call
+#: (:meth:`Calculator._shared_scf_options`,
+#: :meth:`Calculator._inner_scf_options`), which are several runs. The
+#: fingerprint :func:`~defuqumat.scf.checkpoint.load_state` checks is shapes and
+#: counts, with no moments, positions, field or spiral wavevector in it, so
+#: where the shapes agreed the other run's state was resumed in silence: a
+#: ``with_moments`` child came back with the texture it was made to leave, and
+#: the second direction of a relaxed anisotropy with the first one's moment.
+#:
+#: ``checkpoint_every`` is not here. It is a cadence and names no state, so it
+#: crosses like any other default.
+RUN_STATE_OPTIONS = frozenset({"checkpoint_dir", "mixing_from"})
+
+
+def _without_run_state(options: dict, who: str, cure: str, stacklevel: int,
+                       named=()) -> dict:
+    """``options`` without :data:`RUN_STATE_OPTIONS`, saying so if any was set.
+
+    A warning and not a silent drop, because what is lost is a restart: a job
+    whose script names ``checkpoint_dir`` at the constructor and is killed at
+    its wall clock inside the other run would otherwise start that run over at
+    every submission with nothing in its log saying why. ``stacklevel`` is the
+    caller's distance to the user's line, so Python shows the warning once per
+    line of the script and a loop over ``with_positions`` does not repeat it.
+    ``named`` is what the caller wrote at the call site: an option given there
+    replaces the calculator's, so there is nothing to say about it.
+    """
+    dropped = sorted(name for name in RUN_STATE_OPTIONS
+                     if options.get(name) is not None and name not in named)
+    kept = {name: value for name, value in options.items()
+            if name not in RUN_STATE_OPTIONS}
+    if dropped:
+        names = " and ".join(dropped)
+        warnings.warn(
+            f"{who} not given {names} of this calculator: a checkpoint is read "
+            f"only by the run that wrote it, and the directory named at the "
+            f"constructor is the one of this calculator's own get_scf. {cure}",
+            stacklevel=stacklevel + 1,
+        )
+    return kept
+
+
 #: The shared options that belong to the **second** system a method runs on,
 #: and so must not cross into it from this calculator's defaults.
 #:
@@ -835,6 +886,25 @@ class Calculator:
         ``magnetization`` beside it are withheld **together**, since a resume
         refuses a ``magnetization`` argument -- there is nothing left for it to
         decide -- and ``with_moments`` sets one by default.
+
+        **A checkpoint is read only by the run that wrote it**
+        (:data:`RUN_STATE_OPTIONS`). ``checkpoint_dir`` and ``mixing_from``
+        given to the constructor are this calculator's own, and a derived
+        calculator does not inherit them: its SCF is another run, and the state
+        file the parent left in that directory is not later state of it. So
+        the rule above speaks of a directory named at the derived calculator's
+        own call, ``child.get_scf(checkpoint_dir=...)``, which is where its
+        checkpoint goes and comes back from. The workflows that run several
+        ground states in one call (:meth:`get_spiral_scan`,
+        :meth:`get_relaxed_anisotropy`, :meth:`get_magnetoelectric_tensor`) do
+        not take the two from the constructor either. Each of these drops is
+        warned about. **What is not checked** is one directory named by hand at
+        two different runs: the fingerprint of
+        :func:`~defuqumat.scf.checkpoint.load_state` is shapes and counts, so
+        ``calc.get_scf(checkpoint_dir='ck')`` followed by
+        ``calc.with_moments(m).get_scf(checkpoint_dir='ck')`` resumes the first
+        run's state wherever the shapes agree. A directory per run is the
+        caller's to keep.
         """
         # A :data:`SETUP_ONLY_OPTIONS` member is **not part of the key**, and
         # leaving it in made a plain ``get_scf()`` after a
@@ -2519,12 +2589,25 @@ class Calculator:
         ``B_z = 0.005`` converges in 30 iterations through ``get_scf`` and did
         not converge in 150 there. Explicit ``scf_options`` from the caller
         still win.
+
+        :data:`RUN_STATE_OPTIONS` do not come from the defaults, and that is
+        said: the six runs are at six fields, and one ``checkpoint_dir`` under
+        all of them makes each start from the state the one before it left,
+        which is ``chain=True`` where the caller left ``chain=False``. What the
+        caller writes in ``scf_options`` is still the caller's.
         """
-        merged = dict(scf_options or {})
-        for name in SCF_ONLY_OPTIONS - {"max_iterations"}:
-            if name in self.defaults:
-                merged.setdefault(name, self.defaults[name])
-        return merged
+        # this method, ``get_magnetoelectric_tensor``, its pools guard, the user
+        inherited = _without_run_state(
+            {name: self.defaults[name]
+             for name in SCF_ONLY_OPTIONS - {"max_iterations"}
+             if name in self.defaults},
+            "The six ground states of get_magnetoelectric_tensor are",
+            "They are not checkpointed. scf_options={'checkpoint_dir': ...} "
+            "passes it to all six, and each then starts from the state the one "
+            "before it left, as with chain=True",
+            stacklevel=4, named=scf_options or (),
+        )
+        return {**inherited, **(scf_options or {})}
 
     def get_chern(self, **options) -> float:
         """The Chern number of one plane -- an exact integer on any mesh."""
@@ -2592,9 +2675,16 @@ class Calculator:
         """
         from defuqumat.workflows.anisotropy import run_relaxed_anisotropy
 
+        shared = self._shared_scf_options(
+            withheld=("conv_thr",), workflow="get_relaxed_anisotropy",
+            named=options,
+            cure="They are not checkpointed, and checkpoint_dir named in the "
+                 "call is refused for more than one direction: the second "
+                 "would resume the first one's state, with its moment",
+        )
         return run_relaxed_anisotropy(
             self.system, self.pseudos, directions=directions,
-            **{**self._shared_scf_options(withheld=("conv_thr",)),
+            **{**shared,
                **self._defaults_for(run_relaxed_anisotropy, options),
                **options},
         )
@@ -2739,9 +2829,15 @@ class Calculator:
         """One SCF per spiral wavevector, sharing what does not depend on ``q``."""
         from defuqumat.workflows.spiral import run_spiral_scan
 
+        shared = self._shared_scf_options(
+            workflow="get_spiral_scan", named=options,
+            cure="They are not checkpointed. Naming checkpoint_dir in the call "
+                 "passes it to every wavevector, and each then starts from the "
+                 "state the one before it left",
+        )
         return run_spiral_scan(self.system, self.pseudos, wavevectors,
                                calculation=self.calculation,
-                               **{**self._shared_scf_options(), **options})
+                               **{**shared, **options})
 
     def get_spiral_relaxation(self, **options):
         """Relax the spiral wavevector itself: ``dE/dq`` downhill by BFGS."""
@@ -2971,9 +3067,28 @@ class Calculator:
         it, and :meth:`_frozen_basis` is where the reason is. ``defaults``
         replaces this calculator's options, which only :meth:`with_spin` does,
         to rescale ``nbnd``.
+
+        **All the options but :data:`RUN_STATE_OPTIONS`.** A child is another
+        run, and ``checkpoint_dir`` at the constructor names the directory of
+        this one's. Inherited, it made the child's first SCF resume from the
+        state file the parent left there, and ``_seeded`` withheld the
+        converged seed for it: the old texture after ``with_moments`` on an
+        unchanged k-set, a fingerprint error after ``with_spin`` and
+        ``with_kpoints``, the old geometry's mid-run state after
+        ``with_positions``. The drop is said once, with the cure, which is a
+        directory of the child's own at its call; that flow is unchanged
+        (:meth:`get_scf`). Every caller is a public method called by the
+        user, so the warning's ``stacklevel`` is theirs.
         """
+        inherited = _without_run_state(
+            dict(self.defaults if defaults is None else defaults),
+            "The derived calculator is",
+            "Its SCF is not checkpointed. To checkpoint it, name a directory of "
+            "its own at its call: child.get_scf(checkpoint_dir=...)",
+            stacklevel=3,
+        )
         derived = Calculator(system, self.pseudos, announce=self.announce,
-                             basis=basis, **(self.defaults if defaults is None else defaults))
+                             basis=basis, **inherited)
         if scf is not None:
             derived._scf = scf
             # **Deliberately no options**, so that any explicit ``get_scf``
@@ -2994,7 +3109,10 @@ class Calculator:
     # plumbing
     # ------------------------------------------------------------------
 
-    def _shared_scf_options(self, withheld: tuple[str, ...] = ()) -> dict:
+    def _shared_scf_options(self, withheld: tuple[str, ...] = (),
+                            workflow: str = "this workflow",
+                            cure: str = "They are not checkpointed",
+                            named=()) -> dict:
         """The shared options, for an entry point that hides them in ``**kwargs``.
 
         :meth:`_defaults_for` matches against a signature, and a ``**kwargs``
@@ -3014,10 +3132,21 @@ class Calculator:
         level, so a calculator's 1e-6 must not undo it. Naming it in the call
         still reaches it, which is the difference between a default and a
         refusal.
+
+        :data:`RUN_STATE_OPTIONS` are withheld always, and said: both
+        workflows run one SCF per wavevector or per direction, and one
+        ``checkpoint_dir`` under all of them makes each resume the state the
+        one before it left. ``workflow`` and ``cure`` are the two halves of
+        that sentence the caller knows, and ``named`` is the call's own
+        options, about which nothing is said.
         """
-        return {name: value
-                for name, value in self._defaults_for(run_scf).items()
-                if name not in withheld}
+        shared = {name: value
+                  for name, value in self._defaults_for(run_scf).items()
+                  if name not in withheld}
+        # this method, the ``get_*`` that called it, its pools guard, the user
+        return _without_run_state(
+            shared, f"The ground states of {workflow} are", cure, stacklevel=4,
+            named=named)
 
     def _defaults_for(self, func, options=None, exclude=frozenset()) -> dict:
         """This calculator's shared options that ``func`` actually names.
