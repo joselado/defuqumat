@@ -11414,7 +11414,7 @@ The local form costs 1.3 per cent an iteration: one more transform pair of the d
 
 `hold_vacuum_potential` now decides inside the jit whether the shell is the two faces of one slab
 (`hold_faces`), which adds five reductions per axis (one `any`, two `all`, two sums), about a quarter
-of the hold. Before at `ec0a63ee`, after at `b59f3277`, cores 0 to 3, each arm in its own process, the
+of the hold. Before and after the fix (`b59f3277`), cores 0 to 3, each arm in its own process, the
 compiled call timed after warm-up:
 
 | what | before | after |

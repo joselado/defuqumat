@@ -31100,7 +31100,7 @@ Every run ends at Elk's own energy (O2: -149.31451292 against -149.31451284 at `
 
 **The user chose to hold the potential at the tail's value (pick list), and it is the code's now**: `mgga.hold_vacuum_potential`, called by `scf/potential.py:meta_exchange` under `lmbj`, blends the channel potential below `n` = 1e-5 (`LMBJ_RHO_HOLD`) into its mean over `1e-5 < n < 1e-4` through `[1 + erf(ln(n/1e-5)/(ln 10 / 2))]/2`; the 1e-9 gate stays beneath it, where it no longer matters, and a bulk crystal has no point below 1e-5 (silicon's minimum is 6e-4), so its numbers and the bulk-limit identity do not move. Graphane with the committed code, `conv_thr = 1e-11`, gaps off the band route: **6.131, 6.026, 6.015 eV** at 20, 30, 40 bohr, 13 to 14 iterations; the vacuum potential flat to 0.0008, 0.0028, 0.0033 Ry along `z` and 0.281 Ry above PBE's at 40 bohr; `c` 1.270 in the sheet at every size, 1.079, 1.004, 1.000 in the middle of the vacuum; 20 to 30 bohr, the occupied bands rigid to 2.2 meV and the vacuum state at `Gamma` moving 0.104 eV (PBE 0.21). The rows of the table above with the 1e-9 gate alone are superseded.
 
-**Corrected 2026-11-20 (audit 2026-11-20 #9, #10, #25, #26, #46, #47; the per-item record is the fix log of `notes/AUDIT-2026-11-20.md`, the phase is P183).** The hold as the code has it now. Each channel's potential is blended on its own `2 n_sigma`, the density that channel's exchange is evaluated at (#47, `29acaf16`; at `nspin = 1` that is the total bit for bit). The blend acts below about 1e-4, centred on 1e-5, not only below 1e-5: `w` is 0.5 at 1e-5, 0.73 at 2e-5 and 0.998 at 1e-4. The tail value is **one mean per face** when the shell `1e-5 < n < 1e-4` is the two faces of one slab, each point taking the mean of the nearer face, and the cell mean for every other shell, with a warning after the SCF where separate pieces share a mean (#9, #10, `b59f3277`, the user's second choice from a pick list, after a local Gaussian tail moved graphane by about 3 meV and was dropped). Graphane before and after, both arms on cores 4 to 11: 6.130934020587, 6.025637695114 and 6.014764982032 eV against 6.130934078535, 6.025637695115 and 6.014764982028 eV at 20, 30 and 40 bohr, so 5.8e-8, 3.3e-13 and -3.9e-12 eV, the first being exactly what the old code gives between the two kinds of core; the two face means differ by 4.0e-13, 1.3e-13 and 2.6e-13 Ry. So 6.131, 6.026 and 6.015 eV above stand. On graphane with the upper H moved 0.3 A from its C the two vacua are held at 0.222755 and 0.306521 Ry, where the cell mean held both at 0.2635 and 0.2629 Ry, and the gap moves from 5.054616 to 5.053481 eV. "A bulk crystal has no point below 1e-5" is too strong: a bulk crystal whose lowest density is above 1e-4 is untouched (silicon, 6e-4), and fcc Ar at 9.94 bohr is not: its TB09 density has its minimum at 8.38e-5, 43 of the 27000 grid points are in the shell, and the bulk-limit identity holds to 3.6e-6 Ry in the eigenvalues there, against 2.4e-14 on silicon (#46, left as it is; the three options are in the fix log). A polarized `nspin = 2` run is admitted and not checked by any number (#26).
+**Corrected 2026-11-20 (audit 2026-11-20 #9, #10, #25, #26, #46, #47; the per-item record is the fix log of `notes/AUDIT-2026-11-20.md`, the phase is P183).** The hold as the code has it now. Each channel's potential is blended on its own `2 n_sigma`, the density that channel's exchange is evaluated at (#47, `29acaf16`; at `nspin = 1` that is the total bit for bit). The blend acts below about 1e-4, centred on 1e-5, not only below 1e-5: `w` is 0.5 at 1e-5, 0.73 at 2e-5 and 0.998 at 1e-4. The tail value is **one mean per face** when the shell `1e-5 < n < 1e-4` is the two faces of one slab, each point taking the mean of the nearer face, and the cell mean for every other shell, with a warning after the SCF where separate pieces share a mean (#9, #10, `b59f3277`, the user's second choice from a pick list, after a local Gaussian tail moved graphane by about 3 meV and was dropped). Graphane before and after, both arms on cores 4 to 11: 6.130934020587, 6.025637695114 and 6.014764982032 eV against 6.130934078535, 6.025637695115 and 6.014764982028 eV at 20, 30 and 40 bohr, so 5.8e-8, 3.3e-13 and -3.9e-12 eV, the first being exactly what the old code gives between the two kinds of core; the two face means differ by 4.0e-13, 1.3e-13 and 2.6e-13 Ry. So 6.131, 6.026 and 6.015 eV above stand. On graphane with the upper H moved 0.3 A further from its C the two vacua are held at 0.222755 and 0.306521 Ry, where the cell mean held both at 0.2635 and 0.2629 Ry, and the gap moves from 5.054616 to 5.053481 eV. "A bulk crystal has no point below 1e-5" is too strong: a bulk crystal whose lowest density is above 1e-4 is untouched (silicon, 6e-4), and fcc Ar at 9.94 bohr is not: its TB09 density has its minimum at 8.38e-5, 43 of the 27000 grid points are in the shell, and the bulk-limit identity holds to 3.6e-6 Ry in the eigenvalues there, against 2.4e-14 on silicon (#46, left as it is; the three options are in the fix log). A polarized `nspin = 2` run is admitted and not checked by any number (#26).
 
 **Tests.** `tests/unit/test_lmbj.py` (fast, 14 tests: the analytic image sum, the vacuum limits, the bulk-limit identity on a 15 Ry cell, the unpolarized `nspin = 2` run against `nspin = 1` (`c(r)` to 1e-10, eigenvalues to 1e-9), the band route at the SCF's k-points (the six converged bands to 1.6e-6 Ry, as under TB09; the two highest are the SCF's loose ones, 0.022 Ry under both), the gate per functional, every refusal); `tests/regression/test_lmbj_vacuum.py` (**slow, not run, for the user**: graphane's `c` against the vacuum's size, `c -> 1` in vacuum, the rigid occupied bands, the vacuum state within 0.2 eV); `tests/unit/test_checkpoint.py` classifies `meta_c_field` as dropped (a function of the density). The fast tests of every file that mentions the meta-GGA (34 files) and of every file reaching the new guards (22 files, 330 passed) were run on this workstation.
 
@@ -31262,8 +31262,10 @@ of `tau` unturned (the extra item, `f92c02e3`).
 against the fold of its grid (`folded_grid`) and refuse another list with `tetra.f90`'s
 "cannot remap grid on k-point list" (#1, `1f587ffb`): before, the whole 4x4x4 grid of
 `al-tetrahedra` on the symmetric run had its corners on the first 10 of 64 points; the whole
-grid on a run with symmetry is refused, as `pw.x` refuses it, and every committed automatic
-input (217) passes on its own k-set and on its rebuilt ones. The projected force-theorem
+grid on a run with symmetry is refused, as `pw.x` refuses it; all 217 committed inputs with
+an automatic grid under `tests/data/qe/` pass on their own k-set, and the rebuilt k-sets
+(`with_cell`, `with_spin`, `with_turning_moments`) pass on the 14 inputs scanned; a run under
+`DEFUQUMAT_POOLS` was not verified. The projected force-theorem
 decomposition needs the whole k-grid at every direction, the system's own axis included (#26,
 `ba31b484`): on tetragonal Co along z the wedge of the magnetic group (6 of 18 points) put
 `d_xz` and `d_yz` up to 2.4e-2 Ry apart, where the whole grid has them equal to 5.8e-11; the
@@ -31504,10 +31506,17 @@ Three choices that a fix agent made inside its own entry and flagged as the user
 that list: the refusal of round one #11 sits in the function the four KPM traces share, so it
 is wider than the spin DOS (the narrow form moves the check into `kpm/dos.py`); an Elk
 template without `elk.in` gets a warning under a GGA or on a spin-polarized state, not an
-error (round one #19); and round one #43 was read as a refusal, not as text.
+error (round one #19); and round one #43 was read as a refusal, not as text. Four entries of
+`decisions.md` are not separate lines above: the #3 patch was refreshed to apply on `f3b7ba41`
+(`git apply --check` clean; the one conflict, the call-site comment of `2f0a776e`, was
+resolved to the patch's own text); the mixing agent's note on `tau` under `rotate_moments` is
+the extra item; the two entries on the siblings of round three #6 are one line; and the note
+on `test_input_sweep.py` is in the slow-file paragraph below.
 
-**Held patches** (`notes/audit-1120/`, not applied; each applies clean at `9750e507` except the
-superseded one, which needs `--3way`).
+**Held patches** (`notes/audit-1120/`, not applied). The seven patches of the fixes were
+checked at `9750e507` with `git apply --check`: each applies clean except the superseded one,
+which needs `--3way`. The eighth, of the record, was checked on the branch
+`audit-1120-record` only.
 
 - `round2-3-rotate-fit-vectors.patch`: turns the `rho_ddot` fit vectors under
   `rotate_moments`. Held: no saving shown, and it would move I78, I112 and I113.
@@ -31559,7 +31568,7 @@ of the three rounds, groups F and G not included. In `tests/regression/`:
 `test_anisotropy.py`, `test_conductivity.py`, `test_davidson_zero_root.py`,
 `test_dispersion.py`, `test_dos.py`, `test_elastic_one_trace.py`, `test_electron_phonon.py`,
 `test_electrostriction.py`, `test_gamma_only.py`,
-`test_kubo_curvature.py`, `test_ldau.py`, `test_ldau_flavours.py`, `test_lmbj_vacuum.py`,
+`test_kubo_curvature.py`, `test_ldau_flavours.py`, `test_lmbj_vacuum.py`,
 `test_lsda_response.py`, `test_magnetic_bloch_slow.py`, `test_magnetic_ultracell_slow.py`,
 `test_magnetoelectric.py`, `test_mbj.py`, `test_nesting.py`, `test_noncollinear_gga.py`,
 `test_noncollinear_hubbard_resume.py`, `test_noncollinear_pdos.py`, `test_nonlinear.py`,
@@ -31611,6 +31620,9 @@ and #24 call it slow, and the entry of #5 has it right (250 passed and 2 skipped
 the entry of round three #20 lists it among its slow files. Both are left out of the list. Two
 files are reached only by a held patch and are not in the list:
 `tests/regression/test_relaxed_anisotropy.py` and `test_spinor_response.py` (round two #11).
+`tests/regression/test_ldau.py` is not in the list either: it sets `starting_ns_eigenvalue`
+on a collinear run and takes the unchanged branch of `adjust_ns`, and the entry of round three
+#7 names no slow file.
 
 **Gate time the fixes add**, each figure measured as its own process, so the gate grows by
 less. Round one: 14 s for the internal-translation test of #37 (at a peak of 2.1 GB for the
@@ -31622,8 +31634,10 @@ exchange-correlation group (14 s for #15, 7 s for #12, 3.2 s for #4) and 22 s fo
 `tests/unit/test_one_shot_solves_report.py` (#23); the times of
 `tests/unit/test_plane_chunk.py`, of the new test in `test_subspace_eigh_tangent.py` and of
 `tests/unit/test_cli.py` were not given. Round three: group A 33.4 s, B 9.2 s, C about 23 s,
-D about 21 s, E about 2 s. No sum is given here: the figures were taken under different loads,
-each as its own process, and the gate line below is the measurement.
+D about 21 s, E about 2 s. The other new fast tests of round one (the tip, KPM, Hubbard,
+magnetic-route, Elk and `qe_density` tests) have no time in their entries. No sum is given
+here: the figures were taken under different loads, each as its own process, and the gate
+line below is the measurement.
 
 **A note for P178.** Two statements of that record do not hold. (1) Its slow test of the KPM
 spin DOS, `test_the_spin_dos_of_a_spinor_without_inversion_is_zero`, cannot see wedge weights:
