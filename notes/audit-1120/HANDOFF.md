@@ -57,6 +57,38 @@ choices in `decisions.md`.
 
 ### The end of the work
 
+**Status of steps 1 and 2 (2026-11-21, the record agent, branch `audit-1120-record` from
+`6b7bb998`; this branch is merged into `audit-fixes-1120` by the lead).** Each item below is
+marked DONE, DONE WITH A CHANGE, AS A PATCH or LEFT.
+
+- Step 1, P183: DRAFTED, status IN PROGRESS. Left in it: the paragraph "TO FILL: round three,
+  groups F and G" (their numbers, refusals, slow files, gate time and decisions are in no list
+  of P183 yet), the gate line, and the status. One more correction is carried beside the one
+  below: `tests/regression/test_gauge_multiplets.py` has no mark at all, so it is in the gate
+  too (round three #20 lists it as slow).
+- Step 2, `PLAN.md`: DONE as dated notes in P4 item (3), the line on `expand_to_subgroup`,
+  P77c, P148, P179, P181 and P182. DONE WITH A CHANGE: P122 (the proposed sentence was for
+  the case that round two #3 lands; it is held, so the note says the history is dropped under
+  the default fit); P179's V3 (0.0 stays, the note says the slow test was not run); the round
+  three paragraphs (each is in P183, #8 also in P61, and one pointer each in P8, P16, P58, P65,
+  P71 and P162; the paragraph of #6 is merged with its siblings, which landed). Added beyond
+  this list: a dated note in P62e, whose numbers belong to the contraction before round one #8
+  and are not remeasured.
+- Step 2, `.claude/rules/scope.md`, `.claude/rules/reference-source-map.md` and `CLAUDE.md`:
+  AS A PATCH, `notes/audit-1120/record-rules-and-claude-md.patch` (applies clean with
+  `git apply`). An agent may not change these files on the word of another agent, so the user
+  applies it. Two proposals are changed in it: the spiral DFT+U text (the "DFT+U" of that list
+  means symmetry beside DFT+U, which is still refused, so a sentence is added and the word is
+  kept), and the Elk refusals (`tefield` is refused in any template, not only a
+  spin-polarized one; `sxcscf` is named with its flag `tssxc`; `msmgmt` under a GGA and the
+  group order are added from the report of that fix).
+- Step 2, `notes/incompat/I28.md`: DONE. `PERFORMANCE.md`: DONE, and DONE WITH A CHANGE for
+  round two #8 ("card times" is "CPU times at the default chunk", since a card takes the whole
+  box); the per-face hold pair, proposed in a report only, is added too. `OPEN.md`: DONE (Part
+  XXXII, five entries, and Part XXI item 1). The `Calculator.with_kpoints` docstring: DONE.
+- Step 2, `notebooks/40_stm_images`: LEFT, its export needs a run.
+- Steps 3 to 6: LEFT.
+
 1. Write the `PLAN.md` phase P183 from the three fix logs and `decisions.md`, with the slow files
    to run and these corrections: `tests/regression/test_input_sweep.py` has no slow mark and is
    in the gate (round two #7 and #24 call it slow).
