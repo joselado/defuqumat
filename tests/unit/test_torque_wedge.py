@@ -88,8 +88,52 @@ def test_a_torque_on_the_magnetic_wedge_is_refused():
     with pytest.raises(ValueError, match="wedge of the moment's magnetic group"):
         _require_a_whole_grid_for_a_torque(reduced, "a magnetic torque")
     _require_a_whole_grid_for_a_torque(_system(nosym=True), "a magnetic torque")
-    # the identity-and-inversion wedge is complete for an axial vector
-    _require_a_whole_grid_for_a_torque(reduced.with_turning_moments(), "a magnetic torque")
+    # the identity-and-inversion wedge is complete for an axial vector, and it
+    # is a wedge: were it the whole grid, the line below would test nothing
+    turning = reduced.with_turning_moments()
+    assert is_reduced(turning.kpoints) and turning.kpoints.nk == 10
+    _require_a_whole_grid_for_a_torque(turning, "a magnetic torque")
+
+
+def test_a_torque_at_the_own_orientation_is_refused_at_the_door_on_the_wedge(solve_stops, pseudo_dir):
+    """Through the two entry points, where the guard's call sites are (audit 2026-11-20c #15).
+
+    At ``angle = 0`` and at the identity rotation nothing turns, so
+    ``_require_nosym_to_turn`` is not reached and the call site is the only
+    guard. The helper alone was tested, so deleting either call broke no test.
+    """
+    from defuqumat.workflows.anisotropy import run_orientation_torque, run_torque
+
+    reduced = _system(nosym=False)
+    assert is_reduced(reduced.kpoints) and reduced.kpoints.nk == 6
+    pseudos = _pseudos(reduced, pseudo_dir)
+    # ``run_torque`` refuses before it reads the density at all.
+    with pytest.raises(ValueError, match="wedge of the moment's magnetic group"):
+        run_torque(reduced, pseudos, None, angle=0.0)
+    # The orientation torque lays the density along the axis first.
+    density = np.zeros((2, 4, 4, 4))
+    density[0] = 1.0
+    with pytest.raises(ValueError, match="wedge of the moment's magnetic group"):
+        run_orientation_torque(reduced, pseudos, density)
+    with pytest.raises(ValueError, match="wedge of the moment's magnetic group"):
+        run_orientation_torque(reduced, pseudos, density, rotation=np.eye(3))
+
+
+def test_the_own_orientation_reaches_the_solve_off_the_magnetic_wedge(solve_stops, pseudo_dir):
+    """The whole grid and the identity-and-inversion wedge, at the same two doors."""
+    from defuqumat.workflows.anisotropy import run_orientation_torque, run_torque
+
+    whole = _system(nosym=True)
+    turning = _system(nosym=False).with_turning_moments()
+    assert not is_reduced(whole.kpoints) and is_reduced(turning.kpoints)
+    pseudos = _pseudos(whole, pseudo_dir)
+    density = np.zeros((2, 4, 4, 4))
+    density[0] = 1.0
+    for system in (whole, turning):
+        with pytest.raises(_Solved):
+            run_torque(system, pseudos, density, angle=0.0)
+        with pytest.raises(_Solved):
+            run_orientation_torque(system, pseudos, density)
 
 
 def test_a_turned_torque_reaches_the_solve_on_the_turning_wedge(solve_stops, pseudo_dir):
