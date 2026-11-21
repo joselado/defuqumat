@@ -1533,6 +1533,11 @@ def run_torque(
     the **collinear** density of a scalar-relativistic run, exactly as
     :func:`run_force_theorem` takes it, and everything that function refuses is
     refused here for the same reasons.
+
+    The k-set is the whole grid (``nosym``) or the identity-and-inversion wedge
+    of :meth:`~defuqumat.system.builder.System.with_turning_moments`, at every
+    angle; any other wedge is refused (:func:`_require_a_whole_grid_for_a_torque`,
+    :func:`_require_nosym_to_turn`).
     """
     _refuse_single_band_side(system)
     from defuqumat.forces.torque import band_energy_at_angle, torque_at_angle
@@ -1781,6 +1786,13 @@ def run_orientation_torque(
     coefficients are built from it. It is turned with the density, and the
     coefficients are rebuilt from the turned ``becsum`` inside the energy the
     torque is the gradient of, so their share of the torque is in it.
+
+    The k-set is the whole grid (``nosym``) or the identity-and-inversion wedge
+    of :meth:`~defuqumat.system.builder.System.with_turning_moments`, as for
+    :func:`run_torque`. On a PAW dataset that wedge is taken at the identity
+    rotation only: a turned orientation needs ``nosym`` there, the wedge being
+    measured against the whole grid on ultrasoft cells only
+    (:func:`_require_nosym_to_turn`).
     """
     _refuse_single_band_side(system)
     return _orientation_torque(
