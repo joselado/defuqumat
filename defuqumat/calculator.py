@@ -2949,7 +2949,9 @@ class Calculator:
 
         The unreduced grid beside its irreducible wedge is the usual reason to
         want this, and comparing the two is the check on the symmetry
-        reduction: same energy, fewer k-points.
+        reduction: same energy, fewer k-points. A tetrahedron run refuses the
+        whole grid on a run with symmetry, as ``pw.x`` does; for that
+        comparison set ``nosym``.
 
         **The weights are normalised on the way in**
         (:func:`defuqumat.system.kpoints.for_spin`), because every ``KPoints``
